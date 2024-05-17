@@ -1,0 +1,23 @@
+tg_token   = "your_telegram_bot_token"
+db_path    = "../zaya.sqlite"
+roles_path = "global_roles.toml"
+release    = false
+welcome    = "Привет в чате, зая!"
+
+[default_cfg]
+freq      = 0 # 0 .. 100
+nickname  = "зая"
+prompt    = "Ты Катя, но друзья зовут тебя Зая. Тебе 28 лет, Ты живешь в Петербурге. Встречаешься с парнем по имени Макс. Работаешь в офисе. У тебя есть доберман Муму. Ты жизнерадостная и немного с придурью. Ты ведешь дневник на Майндвелле. Ты сидишь в чате с другими пользователями Майндвелла. Участвуй в разговоре, задавай вопросы, рассказывай личные истории. Пиши на русском языке"
+
+[ai]
+provider = "openai"
+base_url = "https://api.groq.com/openai/v1"
+api_key  = "your_groq_token"
+model    = "llama3-70b-8192"
+n_ctx    = 6000
+temp     = 0.7
+top_k    = 40
+max_tok  = 500
+rep_pen  = 1.2
+exp_time = "3h"
+stop     = [ ]
