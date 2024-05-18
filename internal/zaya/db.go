@@ -17,23 +17,25 @@ type DB struct {
 }
 
 type ChatConfig struct {
-	ChatID    int64 `gorm:"primaryKey;autoIncrement:false"`
-	Freq      int
-	Nickname  string
-	Prompt    string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt gorm.DeletedAt
+	ChatID     int64 `gorm:"primaryKey;autoIncrement:false"`
+	Freq       int
+	MaxHistory int
+	Nickname   string
+	Prompt     string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  gorm.DeletedAt
 }
 
 type BotRole struct {
 	gorm.Model
-	ChatID   int64
-	Lang     string
-	Name     string
-	Example  string
-	Nickname string
-	Prompt   string
+	ChatID     int64
+	MaxHistory int `koanf:"max_history"`
+	Lang       string
+	Name       string
+	Example    string
+	Nickname   string
+	Prompt     string
 }
 
 type BotRoleList struct {
@@ -162,6 +164,30 @@ func (db *DB) SetPrompt(chatID int64, prompt string) {
 	}
 }
 
+func (db *DB) SetMaxHistory(chatID int64, maxHistory int) {
+	tx := db.db.Model(&ChatConfig{}).Where(chatID).
+		Updates(&ChatConfig{MaxHistory: maxHistory})
+
+	maxHistory = clampMaxHistory(maxHistory)
+
+	if tx.RowsAffected < 1 {
+		cfg := db.cfg
+		cfg.ChatID = chatID
+		cfg.MaxHistory = maxHistory
+		db.db.Create(&cfg)
+	}
+}
+
+func clampMaxHistory(maxHistory int) int {
+	if maxHistory == 0 {
+		maxHistory = 50
+	} else if maxHistory > 50 {
+		maxHistory = 50
+	}
+
+	return maxHistory
+}
+
 func (db *DB) LoadAllRoleNames(chatID int64) []BotRole {
 	var roles []BotRole
 
@@ -191,6 +217,8 @@ func (db *DB) LoadChatRoleNames(chatID int64) []BotRole {
 }
 
 func (db *DB) saveRole(role *BotRole) {
+	role.MaxHistory = clampMaxHistory(role.MaxHistory)
+
 	tx := db.db.
 		Model(&BotRole{}).
 		Where("chat_id = ?", role.ChatID).
@@ -206,11 +234,12 @@ func (db *DB) SaveRole(chatID int64, lang, name string) {
 	cfg := db.LoadChatConfig(chatID)
 
 	role := &BotRole{
-		ChatID:   chatID,
-		Lang:     lang,
-		Name:     name,
-		Nickname: cfg.Nickname,
-		Prompt:   cfg.Prompt,
+		ChatID:     chatID,
+		MaxHistory: cfg.MaxHistory,
+		Lang:       lang,
+		Name:       name,
+		Nickname:   cfg.Nickname,
+		Prompt:     cfg.Prompt,
 	}
 
 	db.saveRole(role)
@@ -236,13 +265,15 @@ func (db *DB) SetRole(chatID int64, roleID uint) (*BotRole, bool) {
 
 	tx := db.db.Model(&ChatConfig{}).Where(chatID).
 		Updates(&ChatConfig{
-			Nickname: role.Nickname,
-			Prompt:   role.Prompt,
+			MaxHistory: role.MaxHistory,
+			Nickname:   role.Nickname,
+			Prompt:     role.Prompt,
 		})
 
 	if tx.RowsAffected < 1 {
 		cfg := db.cfg
 		cfg.ChatID = chatID
+		cfg.MaxHistory = role.MaxHistory
 		cfg.Nickname = role.Nickname
 		cfg.Prompt = role.Prompt
 		db.db.Create(&cfg)

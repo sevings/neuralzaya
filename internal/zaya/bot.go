@@ -60,6 +60,8 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 	bot.bot.Handle("/set_prompt", bot.setSystemPrompt)
 	bot.bot.Handle("/get_nickname", bot.getNickname)
 	bot.bot.Handle("/set_nickname", bot.setNickname)
+	bot.bot.Handle("/get_max_history", bot.getMaxHistory)
+	bot.bot.Handle("/set_max_history", bot.setMaxHistory)
 	bot.bot.Handle("/select_role", bot.selectRole)
 	bot.bot.Handle("/remove_role", bot.selectRemoveRole)
 	bot.bot.Handle("/save_role", bot.saveRole)
@@ -153,12 +155,15 @@ func (bot *Bot) sendHelp(c tele.Context) error {
 	const text = "" +
 		"Hello! I'm a bot with AI. I can assist you in many tasks or entertain you in chats. " +
 		"Talk to me, ask me questions and I will reply using AI.\n\n" +
-		"Send /select_role to set one of predefined or created roles. A role consists of a prompt and an nickname.\n" +
+		"Send /select_role to set one of predefined or created roles. A role consists of " +
+		"a prompt, a nickname and a history limit.\n" +
 		"Send /save_role to save current prompt and nickname and use them again later.\n" +
 		"Send /remove_role to delete an unused role.\n" +
 		"Send /restart_chat and I will forget our previous conversation.\n" +
 		"Send /get_prompt to read my current system instructions.\n" +
 		"Send /set_prompt to update them.\n" +
+		"Send /get_max_history to see how many messages I will try to remember.\n" +
+		"Send /set_max_history to change this number.\n" +
 		"Send /get_nickname to see how you can call me (usable in group chats).\n" +
 		"Send /set_nickname to change my name.\n" +
 		"Send /get_frequency to see how often I will reply to random messages (in group chats).\n" +
@@ -169,8 +174,8 @@ func (bot *Bot) sendHelp(c tele.Context) error {
 }
 
 func (bot *Bot) startChat(c tele.Context) {
-	prompt := bot.db.LoadChatConfig(c.Chat().ID).Prompt
-	bot.ai.StartChat(c.Chat().ID, prompt)
+	cfg := bot.db.LoadChatConfig(c.Chat().ID)
+	bot.ai.StartChat(c.Chat().ID, cfg.Prompt, cfg.MaxHistory)
 }
 
 func (bot *Bot) restartChat(c tele.Context) error {
@@ -197,7 +202,7 @@ func (bot *Bot) setFrequency(c tele.Context) error {
 	}
 
 	freq, err := strconv.Atoi(args[0])
-	if err != nil || freq < 0 || freq > 99 {
+	if err != nil || freq < 0 || freq > 100 {
 		return c.Reply(errStr, tele.ModeMarkdown)
 	}
 
@@ -226,8 +231,8 @@ func (bot *Bot) setSystemPrompt(c tele.Context) error {
 		return c.Reply(errStr, tele.ModeMarkdown)
 	}
 
-	bot.ai.StartChat(c.Chat().ID, text)
 	bot.db.SetPrompt(c.Chat().ID, text)
+	bot.startChat(c)
 
 	return c.Reply("System prompt changed.")
 }
@@ -235,7 +240,7 @@ func (bot *Bot) setSystemPrompt(c tele.Context) error {
 func (bot *Bot) getNickname(c tele.Context) error {
 	nickname := bot.db.LoadChatConfig(c.Chat().ID).Nickname
 	text := fmt.Sprintf("You can call me %s.", nickname)
-	return c.Send(text)
+	return c.Reply(text)
 }
 
 func (bot *Bot) setNickname(c tele.Context) error {
@@ -251,6 +256,39 @@ func (bot *Bot) setNickname(c tele.Context) error {
 	nickname := strings.ToLower(args[0])
 	bot.db.SetNickname(c.Chat().ID, nickname)
 	return c.Reply("Nickname changed.")
+}
+
+func (bot *Bot) getMaxHistory(c tele.Context) error {
+	maxHistory := bot.db.LoadChatConfig(c.Chat().ID).MaxHistory
+	if maxHistory > 0 {
+		text := fmt.Sprintf("I will remember no more than %d previous messages.", maxHistory)
+		return c.Reply(text)
+	}
+
+	return c.Reply("I will remember as much previous messages as I can.")
+}
+
+func (bot *Bot) setMaxHistory(c tele.Context) error {
+	const errStr = "" +
+		"Example usage: `/set_max_history 10`.\n" +
+		"Set the limit to 0, and I will try to remember as many previous messages " +
+		"as will fit to the context window.\n" +
+		"Set the limit to a positive number, and I will delete old messages " +
+		"when the count is exceeded or the context window size is exceeded, " +
+		"whichever happens first."
+
+	args := c.Args()
+	if len(args) != 1 {
+		return c.Reply(errStr, tele.ModeMarkdown)
+	}
+
+	limit, err := strconv.Atoi(args[0])
+	if err != nil || limit < 0 {
+		return c.Reply(errStr, tele.ModeMarkdown)
+	}
+
+	bot.db.SetMaxHistory(c.Chat().ID, limit)
+	return c.Reply("History limit changed.")
 }
 
 func (bot *Bot) isReplyToBot(c tele.Context) bool {
@@ -463,7 +501,11 @@ func (bot *Bot) createRoleMenu(roles []BotRole, unique string, handler tele.Hand
 func (bot *Bot) selectRole(c tele.Context) error {
 	roles := bot.db.LoadAllRoleNames(c.Chat().ID)
 	roleMenu := bot.createRoleMenu(roles, "set_role", bot.setRole)
-	return c.Reply("Select role. It will set new system prompt and my nickname. The chat will be restarted.", roleMenu)
+	text := "" +
+		"Select role. " +
+		"It will set new system prompt, my nickname and a history limit. " +
+		"The chat will be restarted."
+	return c.Reply(text, roleMenu)
 }
 
 func (bot *Bot) setRole(c tele.Context) error {

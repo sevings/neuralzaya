@@ -20,16 +20,18 @@ type aiChat struct {
 	msgLens  []int
 	curCtx   int
 	maxCtx   int
+	maxHst   int
 	lastTime time.Time
 	hstLock  sync.Mutex
 	log      *zap.SugaredLogger
 }
 
-func newAiChat(prompt string, nCtx int, log *zap.SugaredLogger) *aiChat {
+func newAiChat(prompt string, nCtx, maxHistory int, log *zap.SugaredLogger) *aiChat {
 	chat := &aiChat{
 		messages: make([]llms.MessageContent, 0, 3),
 		msgLens:  make([]int, 0, 3),
 		maxCtx:   nCtx,
+		maxHst:   maxHistory,
 		lastTime: time.Now(),
 		log:      log,
 	}
@@ -62,7 +64,8 @@ func (chat *aiChat) addMessage(role llms.ChatMessageType, text string, maxTok in
 	chat.msgLens = append(chat.msgLens, msgLen)
 	chat.curCtx += msgLen
 
-	if chat.maxCtx > 0 && chat.curCtx >= chat.maxCtx {
+	if (chat.maxCtx > 0 && chat.curCtx >= chat.maxCtx) ||
+		(chat.maxHst > 0 && len(chat.messages)-1 > chat.maxHst) {
 		chat.cleanHistory()
 	}
 }
@@ -82,7 +85,9 @@ func (chat *aiChat) cleanHistory() {
 	}
 
 	rmCnt := 0
-	for chat.curCtx >= chat.maxCtx && rmCnt < msgCnt {
+	for rmCnt < msgCnt &&
+		((chat.maxCtx > 0 && chat.curCtx >= chat.maxCtx) ||
+			(chat.maxHst > 0 && msgCnt-rmCnt > chat.maxHst)) {
 		rmCnt++
 		chat.curCtx -= chat.msgLens[rmCnt]
 	}
@@ -191,12 +196,12 @@ func NewAI(cfg AiConfig) (*AI, bool) {
 }
 
 func (ai *AI) IsChatStarted(chatID int64) bool {
-	_, exists := ai.chats.Peek(chatID)
+	_, exists := ai.chats.Get(chatID)
 	return exists
 }
 
-func (ai *AI) StartChat(chatID int64, prompt string) {
-	chat := newAiChat(prompt, ai.maxCtx, ai.log)
+func (ai *AI) StartChat(chatID int64, prompt string, maxHistory int) {
+	chat := newAiChat(prompt, ai.maxCtx, maxHistory, ai.log)
 	ai.chats.Set(chatID, chat, ai.chatExp)
 
 	ai.log.Infow("chat started", "chat_id", chatID)
@@ -244,6 +249,8 @@ func (ai *AI) GetReply(chatID int64, userMsg string, isReply bool) (AIReply, boo
 				ai.log.Warnw(err.Error(), "chat_id", chatID)
 				return AIReply{}, false
 			}
+		} else {
+			return AIReply{}, false
 		}
 	}
 
