@@ -66,7 +66,7 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 	bot.bot.Handle("/remove_role", bot.selectRemoveRole)
 	bot.bot.Handle("/save_role", bot.saveRole)
 	bot.bot.Handle("/help", bot.sendHelp)
-	bot.bot.Handle("/start", bot.sendHelp)
+	bot.bot.Handle("/start", bot.welcome)
 	bot.bot.Handle(tele.OnAddedToGroup, bot.welcome)
 	bot.bot.Handle(tele.OnText, bot.readMessage)
 
@@ -154,7 +154,13 @@ func (bot *Bot) logError(err error, c tele.Context) {
 func (bot *Bot) sendHelp(c tele.Context) error {
 	const text = "" +
 		"Hello! I'm a bot with AI. I can assist you in many tasks or entertain you in chats. " +
-		"Talk to me, ask me questions and I will reply using AI.\n\n" +
+		"Talk to me, ask me questions and I will respond using AI.\n\n" +
+		"You can talk to me in the private chat. I will respond to all your messages.\n\n" +
+		"In group chats, I will respond if you mention me (using @), call me by nickname (see /get_nickname) or " +
+		"if you reply to my message. If you mention me in reply to another message, I will respond to that " +
+		"message instead. Also, I can respond to a percentage of random messages to keep the conversation going " +
+		" (see /set_frequency).\n\n" +
+		"The most interesting command is /select_role. Try it.\n\n" +
 		"Send /select_role to set one of predefined or created roles. A role consists of " +
 		"a prompt, a nickname and a history limit.\n" +
 		"Send /save_role to save current prompt and nickname and use them again later.\n" +
@@ -428,6 +434,11 @@ func (bot *Bot) sendReply(msg *tele.Message, reply AIReply) error {
 }
 
 func (bot *Bot) welcome(c tele.Context) error {
+	err := bot.sendHelp(c)
+	if err != nil {
+		return err
+	}
+
 	bot.startChat(c)
 	return bot.sendAiReply(c.Message(), bot.wlc, true)
 }
