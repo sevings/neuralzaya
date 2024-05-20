@@ -200,10 +200,14 @@ func (ai *AI) IsChatStarted(chatID int64) bool {
 	return exists
 }
 
-func (ai *AI) StartChat(chatID int64, prompt string, maxHistory int) {
+func (ai *AI) createChat(chatID int64, prompt string, maxHistory int) *aiChat {
 	chat := newAiChat(prompt, ai.maxCtx, maxHistory, ai.log)
 	ai.chats.Set(chatID, chat, ai.chatExp)
+	return chat
+}
 
+func (ai *AI) StartChat(chatID int64, prompt string, maxHistory int) {
+	ai.createChat(chatID, prompt, maxHistory)
 	ai.log.Infow("chat started", "chat_id", chatID)
 }
 
@@ -283,4 +287,35 @@ func (ai *AI) GetReply(chatID int64, userMsg string, isReply bool) (AIReply, boo
 		"dur", fmt.Sprintf("%.2f", duration))
 
 	return reply, true
+}
+
+func (ai *AI) GetAllMessages() []DialogMessage {
+	chats := ai.chats.PeekAll()
+	messages := make([]DialogMessage, 0, len(chats)*3)
+
+	for chatID, chat := range chats {
+		for _, message := range chat.messages {
+			messages = append(messages, DialogMessage{
+				ChatID: chatID,
+				Text:   message.Parts[0].(llms.TextContent).Text,
+			})
+		}
+	}
+
+	return messages
+}
+
+func (ai *AI) AddAllMessages(messages []DialogMessage, maxHst map[int64]int) {
+	var chat *aiChat
+	var chatID int64
+	for _, msg := range messages {
+		if chatID != msg.ChatID {
+			chatID = msg.ChatID
+			chat = ai.createChat(chatID, msg.Text, maxHst[chatID])
+		} else if len(chat.messages)%2 == 1 {
+			chat.addUserMessage(msg.Text)
+		} else {
+			chat.addBotMessage(msg.Text, ai.maxTok)
+		}
+	}
 }

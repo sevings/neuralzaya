@@ -1,6 +1,7 @@
 package zaya
 
 import (
+	"database/sql"
 	"github.com/glebarez/sqlite"
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/file"
@@ -42,6 +43,12 @@ type BotRoleList struct {
 	Roles []BotRole
 }
 
+type DialogMessage struct {
+	gorm.Model
+	ChatID int64
+	Text   string
+}
+
 func LoadDatabase(path string, defaultCfg ChatConfig) (*DB, bool) {
 	log := zap.L().Named("db").Sugar()
 	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
@@ -50,7 +57,7 @@ func LoadDatabase(path string, defaultCfg ChatConfig) (*DB, bool) {
 		return nil, false
 	}
 
-	err = db.AutoMigrate(&ChatConfig{}, &BotRole{})
+	err = db.AutoMigrate(&ChatConfig{}, &BotRole{}, &DialogMessage{})
 	if err != nil {
 		log.Error(err)
 		return nil, false
@@ -280,4 +287,58 @@ func (db *DB) SetRole(chatID int64, roleID uint) (*BotRole, bool) {
 	}
 
 	return role, true
+}
+
+func (db *DB) SaveMessages(messages []DialogMessage) {
+	err := db.db.Transaction(func(tx *gorm.DB) error {
+		var maxID sql.NullInt64
+		err := tx.Model(&DialogMessage{}).
+			Select("MAX(id)").
+			Pluck("MAX(id)", &maxID).Error
+		if err != nil {
+			return err
+		}
+
+		err = tx.Create(messages).Error
+		if err != nil {
+			return err
+		}
+
+		if maxID.Valid {
+			err = tx.Delete(&DialogMessage{}, "id <= ?", maxID.Int64).Error
+		}
+
+		return err
+	})
+
+	if err != nil {
+		db.log.Warnw(err.Error())
+	}
+}
+
+func (db *DB) LoadMaxHistory() (map[int64]int, bool) {
+	configs := make([]*ChatConfig, 0)
+
+	err := db.db.Find(&configs).Error
+	if err != nil {
+		db.log.Warnw(err.Error())
+	}
+
+	maxHst := make(map[int64]int)
+	for _, cfg := range configs {
+		maxHst[cfg.ChatID] = cfg.MaxHistory
+	}
+
+	return maxHst, err == nil
+}
+
+func (db *DB) LoadMessages() ([]DialogMessage, bool) {
+	messages := make([]DialogMessage, 0)
+
+	err := db.db.Find(&messages).Order("id asc").Error
+	if err != nil {
+		db.log.Warnw(err.Error())
+	}
+
+	return messages, err == nil
 }

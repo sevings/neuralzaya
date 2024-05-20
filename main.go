@@ -46,6 +46,23 @@ func main() {
 		db.UploadGlobalRoles(cfg.RolesPath)
 	}
 
+	{
+		allMessages, ok := db.LoadMessages()
+		if !ok {
+			logger.Panic("can't load messages")
+		}
+		maxHst, ok := db.LoadMaxHistory()
+		if !ok {
+			logger.Panic("can't load history limits")
+		}
+		ai.AddAllMessages(allMessages, maxHst)
+	}
+
+	defer func() {
+		allMessages := ai.GetAllMessages()
+		db.SaveMessages(allMessages)
+	}()
+
 	bot, ok := zaya.NewBot(cfg, ai, db)
 	if !ok {
 		logger.Panic("can't create bot")
