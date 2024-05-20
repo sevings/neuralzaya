@@ -291,42 +291,39 @@ func (bot *Bot) setMaxHistory(c tele.Context) error {
 	return c.Reply("History limit changed.")
 }
 
-func (bot *Bot) isReplyToBot(c tele.Context) bool {
-	return c.Message().ReplyTo != nil && c.Message().ReplyTo.Sender.ID == bot.bot.Me.ID
-}
-
-func (bot *Bot) shouldReplyTo(c tele.Context) bool {
+func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool) {
 	if len(c.Text()) == 0 || c.Text()[0] == '/' {
-		return false
+		return false, false
 	}
 
 	if c.Chat().Type == tele.ChatPrivate {
-		return true
+		return true, true
 	}
 
 	if len(c.Text()) > 1000 {
-		return false
+		return false, false
 	}
 
-	if bot.isReplyToBot(c) {
-		return true
+	if c.Message().ReplyTo != nil &&
+		c.Message().ReplyTo.Sender.ID == bot.bot.Me.ID {
+		return true, true
 	}
 
 	mention := "@" + bot.bot.Me.Username
 	if strings.Contains(c.Text(), mention) {
-		return true
+		return true, false
 	}
 
 	cfg := bot.db.LoadChatConfig(c.Chat().ID)
 	if strings.Contains(strings.ToLower(c.Text()), cfg.Nickname) {
-		return true
+		return true, false
 	}
 
 	if rand.Intn(100) < cfg.Freq {
-		return true
+		return true, cfg.Freq == 100
 	}
 
-	return false
+	return false, false
 }
 
 func (bot *Bot) sendAiReply(msg *tele.Message, userMsg string, isReply bool) error {
@@ -438,7 +435,8 @@ func (bot *Bot) welcome(c tele.Context) error {
 func (bot *Bot) readMessage(c tele.Context) error {
 	beginTime := time.Now().UnixNano()
 
-	if !bot.shouldReplyTo(c) {
+	shouldReply, forceKeepHistory := bot.shouldReplyTo(c)
+	if !shouldReply {
 		return nil
 	}
 
@@ -458,7 +456,7 @@ func (bot *Bot) readMessage(c tele.Context) error {
 		bot.startChat(c)
 	}
 
-	err := bot.sendAiReply(msg, text, bot.isReplyToBot(c))
+	err := bot.sendAiReply(msg, text, forceKeepHistory)
 
 	bot.logMessage(c, beginTime, err)
 

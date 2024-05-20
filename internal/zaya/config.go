@@ -5,6 +5,7 @@ import (
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
+	"time"
 )
 
 type Config struct {
@@ -30,10 +31,11 @@ type AiConfig struct {
 	Model    string
 	NCtx     int `koanf:"n_ctx"`
 	Temp     float64
-	TopK     int     `koanf:"tok_k"`
-	RepPen   float64 `koanf:"rep_pen"`
-	MaxTok   int     `koanf:"max_tok"`
-	ExpTime  string  `koanf:"exp_time"`
+	TopK     int           `koanf:"tok_k"`
+	RepPen   float64       `koanf:"rep_pen"`
+	MaxTok   int           `koanf:"max_tok"`
+	ExpTime  time.Duration `koanf:"exp_time"`
+	ChatExp  time.Duration `koanf:"chat_exp"`
 	Stop     []string
 }
 

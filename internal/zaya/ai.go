@@ -105,8 +105,8 @@ func (chat *aiChat) cleanHistory() {
 		"ctx", chat.curCtx)
 }
 
-func (chat *aiChat) isExpired(maxDur time.Duration, isReply bool) bool {
-	return !isReply && time.Since(chat.lastTime) > maxDur
+func (chat *aiChat) isExpired(maxDur time.Duration) bool {
+	return time.Since(chat.lastTime) > maxDur
 }
 
 func (chat *aiChat) restart() {
@@ -134,13 +134,8 @@ func NewAI(cfg AiConfig) (*AI, bool) {
 		maxTok: cfg.MaxTok,
 	}
 
-	exp, err := time.ParseDuration(cfg.ExpTime)
-	if err != nil {
-		ai.log.Warnw("error parsing expiration", "exp", cfg.ExpTime)
-		err = nil
-	}
-	ai.maxDur = exp
-	ai.chatExp = imcache.WithSlidingExpiration(exp * 20)
+	ai.maxDur = cfg.ExpTime
+	ai.chatExp = imcache.WithSlidingExpiration(cfg.ChatExp)
 
 	ai.log.Infow("creating AI",
 		"provider", cfg.Provider,
@@ -153,6 +148,7 @@ func NewAI(cfg AiConfig) (*AI, bool) {
 		"max_tokens", cfg.MaxTok,
 		"stop_words", cfg.Stop)
 
+	var err error
 	switch cfg.Provider {
 	case "openai":
 		opts := make([]openai.Option, 0)
@@ -216,7 +212,7 @@ type AIReply struct {
 	AtEnd bool
 }
 
-func (ai *AI) GetReply(chatID int64, userMsg string, isReply bool) (AIReply, bool) {
+func (ai *AI) GetReply(chatID int64, userMsg string, forceKeep bool) (AIReply, bool) {
 	beginTime := time.Now().UnixNano()
 
 	chat, ok := ai.chats.Get(chatID)
@@ -228,7 +224,7 @@ func (ai *AI) GetReply(chatID int64, userMsg string, isReply bool) (AIReply, boo
 	chat.hstLock.Lock()
 	defer chat.hstLock.Unlock()
 
-	if chat.isExpired(ai.maxDur, isReply) {
+	if !forceKeep && chat.isExpired(ai.maxDur) {
 		chat.restart()
 	}
 
