@@ -20,4 +20,5 @@ top_k    = 40
 max_tok  = 500
 rep_pen  = 1.2
 exp_time = "3h"
+chat_exp = "720h"
 stop     = [ ]
