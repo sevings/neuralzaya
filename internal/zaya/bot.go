@@ -153,28 +153,32 @@ func (bot *Bot) logError(err error, c tele.Context) {
 
 func (bot *Bot) sendHelp(c tele.Context) error {
 	const text = "" +
-		"Hello! I'm a bot with AI. I can assist you in many tasks or entertain you in chats. " +
-		"Talk to me, ask me questions and I will respond using AI.\n\n" +
-		"You can talk to me in the private chat. I will respond to all your messages.\n\n" +
-		"In group chats, I will respond if you mention me (using @), call me by nickname (see /get_nickname) or " +
-		"if you reply to my message. If you mention me in reply to another message, I will respond to that " +
-		"message instead. Also, I can respond to a percentage of random messages to keep the conversation going " +
-		" (see /set_frequency).\n\n" +
-		"The most interesting command is /select_role. Try it.\n\n" +
-		"Send /select_role to set one of predefined or created roles. A role consists of " +
-		"a prompt, a nickname and a history limit.\n" +
-		"Send /save_role to save current prompt and nickname and use them again later.\n" +
-		"Send /remove_role to delete an unused role.\n" +
-		"Send /restart_chat and I will forget our previous conversation.\n" +
-		"Send /get_prompt to read my current system instructions.\n" +
-		"Send /set_prompt to update them.\n" +
-		"Send /get_max_history to see how many messages I will try to remember.\n" +
-		"Send /set_max_history to change this number.\n" +
-		"Send /get_nickname to see how you can call me (usable in group chats).\n" +
-		"Send /set_nickname to change my name.\n" +
-		"Send /get_frequency to see how often I will reply to random messages (in group chats).\n" +
-		"Send /set_frequency to change this setting.\n" +
-		"Send /help to read this message again.\n"
+		"Greetings! I'm a sophisticated AI-powered bot, capable of assisting you with " +
+		"a multitude of tasks or engaging in captivating conversations. Feel free " +
+		"to converse with me, pose questions, and I'll respond with insightful answers.\n\n" +
+		"You're welcome to initiate a private chat with me, and I'll respond to all your messages.\n\n" +
+		"In group chats, I'll respond when you address me directly (using @), " +
+		"refer to me by my nickname (accessible via /get_nickname), " +
+		"or reply to one of my previous messages. If you mention me in response to another message, " +
+		"I'll address that specific message instead. Additionally, I may respond to a percentage " +
+		"of random messages to maintain a lively conversation (configurable via /set_frequency).\n\n" +
+		"The most interesting command at your disposal is /select_role. " +
+		"I encourage you to explore its possibilities.\n\n" +
+		"To customize your experience, utilize the following commands:\n\n" +
+		"To use a predefined or created persona, send /select_role, which comprises " +
+		"a system prompt, a nickname, and a history limit.\n" +
+		"To preserve the current persona for future use, send /save_role.\n" +
+		"To discard an unused persona, send /remove_role.\n" +
+		"To reboot our conversation, send /restart_chat, and I'll forget our previous messages.\n" +
+		"To access my current system instructions, send /get_prompt.\n" +
+		"To update these instructions, send /set_prompt.\n" +
+		"To view the number of messages I'll attempt to keep in my mind, send /get_max_history.\n" +
+		"To modify this number, send /set_max_history.\n" +
+		"To discover how to address me in group chats, send /get_nickname.\n" +
+		"To alter my nickname, send /set_nickname.\n" +
+		"To see how frequently I'll respond to random messages in group chats, send /get_frequency.\n" +
+		"To adjust this setting, send /set_frequency.\n" +
+		"To revisit this guidance, send /help."
 
 	return c.Reply(text)
 }
@@ -191,16 +195,19 @@ func (bot *Bot) restartChat(c tele.Context) error {
 
 func (bot *Bot) getFrequency(c tele.Context) error {
 	freq := bot.db.LoadChatConfig(c.Chat().ID).Freq
-	text := fmt.Sprintf("I will reply to %d%% random messages in the chat.", freq)
+	text := fmt.Sprintf("I will respond to a percentage of %d%% random messages in the chat.", freq)
 	return c.Reply(text)
 }
 
 func (bot *Bot) setFrequency(c tele.Context) error {
 	const errStr = "" +
 		"Example usage: `/set_frequency 10`.\n" +
-		"Set frequency to 0, and I will reply only if you ask me (in the group chat).\n" +
-		"Set frequency to 50, and I will reply to about half of all messages in the group chat.\n" +
-		"Set frequency to 100, and I will reply to every message in the group chat."
+		"Set the frequency to 0, and I will remain dormant, " +
+		"only responding when directly addressed in the group chat.\n" +
+		"Set the frequency to 50, and I will respond to approximately " +
+		"half of all messages in the group chat.\n" +
+		"Set the frequency to 100, and I will engage " +
+		"with every message in the group chat."
 
 	args := c.Args()
 	if len(args) != 1 {
@@ -267,21 +274,29 @@ func (bot *Bot) setNickname(c tele.Context) error {
 func (bot *Bot) getMaxHistory(c tele.Context) error {
 	maxHistory := bot.db.LoadChatConfig(c.Chat().ID).MaxHistory
 	if maxHistory > 0 {
-		text := fmt.Sprintf("I will remember no more than %d previous messages.", maxHistory)
+		const maxText = "" +
+			"My conversational memory will be " +
+			"capped at max %d preceding messages."
+
+		text := fmt.Sprintf(maxText, maxHistory)
 		return c.Reply(text)
 	}
 
-	return c.Reply("I will remember as much previous messages as I can.")
+	const zeroText = "" +
+		"My conversational memory will be unlimited, " +
+		"retaining all preceding messages within my capabilities."
+
+	return c.Reply(zeroText)
 }
 
 func (bot *Bot) setMaxHistory(c tele.Context) error {
 	const errStr = "" +
 		"Example usage: `/set_max_history 10`.\n" +
-		"Set the limit to 0, and I will try to remember as many previous messages " +
-		"as will fit to the context window.\n" +
-		"Set the limit to a positive number, and I will delete old messages " +
-		"when the count is exceeded or the context window size is exceeded, " +
-		"whichever happens first."
+		"Set a limit of 0, and I will attempt to retain " +
+		"as many preceding messages as possible within the context window.\n" +
+		"Set a positive numerical limit, and I will purge older messages " +
+		"when the designated threshold is surpassed or " +
+		"the context window capacity is exceeded, whichever occurs first."
 
 	args := c.Args()
 	if len(args) != 1 {
@@ -510,10 +525,11 @@ func (bot *Bot) createRoleMenu(roles []BotRole, unique string, handler tele.Hand
 func (bot *Bot) selectRole(c tele.Context) error {
 	roles := bot.db.LoadAllRoleNames(c.Chat().ID)
 	roleMenu := bot.createRoleMenu(roles, "set_role", bot.setRole)
-	text := "" +
-		"Select role. " +
-		"It will set new system prompt, my nickname and a history limit. " +
-		"The chat will be restarted."
+	const text = "" +
+		"Select a role, which will subsequently establish a system prompt, " +
+		"assign a nickname, and determine a history limit. " +
+		"Upon selection, the chat will be restarted."
+
 	return c.Reply(text, roleMenu)
 }
 
@@ -543,7 +559,10 @@ func (bot *Bot) setRole(c tele.Context) error {
 }
 
 func (bot *Bot) selectRemoveRole(c tele.Context) error {
-	text := "Select role to remove. You can remove only roles created in this Telegram chat."
+	text := "" +
+		"Select a role to remove. But note that only roles " +
+		"created within this Telegram chat may be removed."
+
 	roles := bot.db.LoadChatRoleNames(c.Chat().ID)
 	if len(roles) > 0 {
 		roleMenu := bot.createRoleMenu(roles, "remove_role", bot.removeRole)
@@ -576,8 +595,11 @@ func (bot *Bot) removeRole(c tele.Context) error {
 func (bot *Bot) saveRole(c tele.Context) error {
 	const errStr = "" +
 		"Example usage: `/save_role en Assistant`.\n" +
-		"First argument is language (two letters). It is used for sorting.\n" +
-		"Second argument is new role name (no more than 20 chars)."
+		"The first argument denotes the language, " +
+		"represented by a two-letter code, " +
+		"which serves as a sorting criterion.\n" +
+		"The second argument specifies the new role name, " +
+		"limited to a maximum of 20 characters."
 
 	args := c.Args()
 	if len(args) < 2 {
