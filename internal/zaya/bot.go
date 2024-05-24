@@ -418,6 +418,12 @@ func escapeSpecialChars(s string) string {
 		}
 	}
 
+	if inTripleQuote {
+		result.WriteString("\n```")
+	} else if inBackQuote {
+		result.WriteByte('`')
+	}
+
 	return result.String()
 }
 
@@ -426,13 +432,13 @@ func (bot *Bot) sendReply(msg *tele.Message, reply AIReply) error {
 		return nil
 	}
 
-	reply.Text = escapeSpecialChars(reply.Text)
+	escapedText := escapeSpecialChars(reply.Text)
 
 	var err error
 	if reply.AtEnd {
-		_, err = bot.bot.Reply(msg, reply.Text, tele.ModeMarkdownV2)
+		_, err = bot.bot.Reply(msg, escapedText, tele.ModeMarkdownV2)
 	} else {
-		_, err = bot.bot.Reply(msg, reply.Text, bot.continueMenu, tele.ModeMarkdownV2)
+		_, err = bot.bot.Reply(msg, escapedText, bot.continueMenu, tele.ModeMarkdownV2)
 	}
 
 	if err != nil {
