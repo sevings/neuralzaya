@@ -387,6 +387,7 @@ func escapeSpecialChars(s string) string {
 
 	inTripleQuote := false
 	inBackQuote := false
+	isBoldText := false
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if c == '`' {
@@ -408,6 +409,10 @@ func escapeSpecialChars(s string) string {
 				result.WriteByte('\\')
 			}
 			result.WriteByte(c)
+		} else if c == '*' && i+1 < len(s) && s[i+1] == '*' && !inTripleQuote && !inBackQuote {
+			isBoldText = !isBoldText
+			result.WriteString("*")
+			i++
 		} else if !inTripleQuote && !inBackQuote && strings.ContainsRune("_^*[]()~>#+-|{}.!=", rune(c)) {
 			if i == 0 || s[i-1] != '\\' {
 				result.WriteByte('\\')
@@ -422,6 +427,8 @@ func escapeSpecialChars(s string) string {
 		result.WriteString("\n```")
 	} else if inBackQuote {
 		result.WriteByte('`')
+	} else if isBoldText {
+		result.WriteString("**")
 	}
 
 	return result.String()
