@@ -428,7 +428,7 @@ func escapeSpecialChars(s string) string {
 	} else if inBackQuote {
 		result.WriteByte('`')
 	} else if isBoldText {
-		result.WriteString("**")
+		result.WriteString("*")
 	}
 
 	return result.String()
