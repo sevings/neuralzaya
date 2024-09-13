@@ -208,8 +208,10 @@ func (ai *AI) StartChat(chatID int64, prompt string, maxHistory int) {
 }
 
 type AIReply struct {
-	Text  string
-	AtEnd bool
+	CtxLen   int
+	ReplyLen int
+	Text     string
+	AtEnd    bool
 }
 
 func (ai *AI) GetReply(chatID int64, userMsg string, forceKeep bool) (AIReply, bool) {
@@ -264,8 +266,9 @@ func (ai *AI) GetReply(chatID int64, userMsg string, forceKeep bool) (AIReply, b
 	}
 
 	reply := AIReply{
-		Text:  resp.Choices[0].Content,
-		AtEnd: resp.Choices[0].StopReason != "length",
+		CtxLen: chat.curCtx,
+		Text:   resp.Choices[0].Content,
+		AtEnd:  resp.Choices[0].StopReason != "length",
 	}
 	if reply.Text == "" {
 		ai.log.Warnw("model reply content is empty", "chat_id", chatID)
@@ -273,6 +276,7 @@ func (ai *AI) GetReply(chatID int64, userMsg string, forceKeep bool) (AIReply, b
 	}
 
 	chat.addBotMessage(reply.Text, ai.maxTok)
+	reply.ReplyLen = chat.msgLens[len(chat.msgLens)-1]
 
 	endTime := time.Now().UnixNano()
 	duration := float64(endTime-beginTime) / 1000000

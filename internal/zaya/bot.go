@@ -5,9 +5,11 @@ import (
 	"go.uber.org/zap"
 	tele "gopkg.in/telebot.v3"
 	"gopkg.in/telebot.v3/middleware"
+	"math"
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,14 +21,20 @@ type Bot struct {
 	log *zap.SugaredLogger
 
 	continueMenu *tele.ReplyMarkup
+
+	startedAt   time.Time
+	aiMSgCount  atomic.Int64
+	aiMsgLength atomic.Int64
+	aiHstLength atomic.Int64
 }
 
 func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 	bot := &Bot{
-		ai:  ai,
-		db:  db,
-		wlc: cfg.Welcome,
-		log: zap.L().Named("bot").Sugar(),
+		ai:        ai,
+		db:        db,
+		wlc:       cfg.Welcome,
+		log:       zap.L().Named("bot").Sugar(),
+		startedAt: time.Now(),
 	}
 
 	pref := tele.Settings{
@@ -67,6 +75,7 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 	bot.bot.Handle("/save_role", bot.saveRole)
 	bot.bot.Handle("/help", bot.sendHelp)
 	bot.bot.Handle("/start", bot.welcome)
+	bot.bot.Handle("/stat", bot.getBotStat)
 	bot.bot.Handle(tele.OnAddedToGroup, bot.welcome)
 	bot.bot.Handle(tele.OnText, bot.readMessage)
 
@@ -439,6 +448,10 @@ func (bot *Bot) sendReply(msg *tele.Message, reply AIReply) error {
 		return nil
 	}
 
+	bot.aiMSgCount.Add(1)
+	bot.aiMsgLength.Add(int64(reply.ReplyLen))
+	bot.aiHstLength.Add(int64(reply.CtxLen))
+
 	escapedText := escapeSpecialChars(reply.Text)
 
 	var err error
@@ -632,4 +645,48 @@ func (bot *Bot) saveRole(c tele.Context) error {
 	bot.db.SaveRole(c.Chat().ID, lang, name)
 
 	return c.Reply("Role saved.")
+}
+
+func (bot *Bot) getBotStat(c tele.Context) error {
+	var msg strings.Builder
+
+	addF64 := func(title string, value float64) {
+		if math.IsInf(value, 0) || math.IsNaN(value) {
+			value = 0
+		}
+
+		msg.WriteString(fmt.Sprintf("%s: %.2f\n", title, value))
+	}
+
+	addI64 := func(title string, value int64) {
+		msg.WriteString(fmt.Sprintf("%s: %d\n", title, value))
+	}
+
+	uptimeDays := time.Now().Sub(bot.startedAt).Hours() / 24
+	addF64("Uptime (days)", uptimeDays)
+
+	totalMsgCnt := bot.aiMSgCount.Load()
+	addI64("Total count of output messages", totalMsgCnt)
+
+	totalMsgLen := bot.aiMsgLength.Load()
+	addI64("Total length of output messages (KiB)", totalMsgLen/1024)
+
+	if uptimeDays > 0.1 {
+		avgMsgCnt := float64(totalMsgCnt) / uptimeDays
+		addF64("Count of output messages per day", avgMsgCnt)
+
+		avgMsgLen := float64(totalMsgLen) / 1024 / uptimeDays
+		addF64("Length of output messages per day (KiB)", avgMsgLen)
+
+		avgHstLen := float64(bot.aiHstLength.Load()) / 1024 / uptimeDays
+		addF64("Length of input context per day (KiB)", avgHstLen)
+	}
+
+	groupChatCnt := bot.db.GetChatCount()
+	addI64("Total count of chats", groupChatCnt)
+
+	customRoleCnt := bot.db.GetCustomRoleCount()
+	addI64("Count of custom roles", customRoleCnt)
+
+	return c.Reply(msg.String(), tele.ModeHTML)
 }

@@ -342,3 +342,15 @@ func (db *DB) LoadMessages() ([]DialogMessage, bool) {
 
 	return messages, err == nil
 }
+
+func (db *DB) GetChatCount() int64 {
+	var cnt int64
+	db.db.Model(&ChatConfig{}).Count(&cnt)
+	return cnt
+}
+
+func (db *DB) GetCustomRoleCount() int64 {
+	var cnt int64
+	db.db.Model(&BotRole{}).Where("chat_id <> 0").Count(&cnt)
+	return cnt
+}
