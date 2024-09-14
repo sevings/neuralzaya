@@ -79,6 +79,12 @@ func (chat *aiChat) addBotMessage(text string, maxTok int) {
 	chat.addMessage(llms.ChatMessageTypeAI, text, maxTok)
 }
 
+func (chat *aiChat) removeLastMessage() {
+	chat.curCtx -= chat.msgLens[len(chat.msgLens)-1]
+	chat.msgLens = chat.msgLens[:len(chat.msgLens)-1]
+	chat.messages = chat.messages[:len(chat.messages)-1]
+}
+
 func (chat *aiChat) cleanHistory() {
 	msgCnt := len(chat.messages) - 1
 	if msgCnt == 0 {
@@ -220,7 +226,11 @@ func (ai *AI) StartChat(chatID int64, prompt string, maxHistory int) {
 	ai.log.Infow("chat started", "chat_id", chatID)
 }
 
-func (ai *AI) generate(chatID int64, chat *aiChat) (*llms.ContentResponse, bool) {
+func (ai *AI) generate(chatID int64, chat *aiChat, nTry int) (*llms.ContentResponse, bool) {
+	if nTry > 5 {
+		return nil, false
+	}
+
 	llm := ai.llm
 	isAlt := ai.isAlt.Load()
 	if isAlt {
@@ -230,6 +240,14 @@ func (ai *AI) generate(chatID int64, chat *aiChat) (*llms.ContentResponse, bool)
 	resp, err := llm.GenerateContent(context.Background(), chat.messages, ai.opts...)
 	if err == nil {
 		return resp, true
+	}
+
+	if strings.Contains(err.Error(), "Service Unavailable") {
+		sec := nTry * 3
+		ai.log.Infow("sleeping", "sec", sec)
+		time.Sleep(time.Duration(sec) * time.Second)
+
+		return ai.generate(chatID, chat, nTry+1)
 	}
 
 	idx := strings.Index(err.Error(), "Please try again in")
@@ -262,7 +280,7 @@ func (ai *AI) generate(chatID int64, chat *aiChat) (*llms.ContentResponse, bool)
 		})
 	}
 
-	return ai.generate(chatID, chat)
+	return ai.generate(chatID, chat, nTry+1)
 }
 
 type AIReply struct {
@@ -290,8 +308,9 @@ func (ai *AI) GetReply(chatID int64, userMsg string, forceKeep bool) (AIReply, b
 
 	chat.addUserMessage(userMsg)
 
-	resp, ok := ai.generate(chatID, chat)
+	resp, ok := ai.generate(chatID, chat, 1)
 	if !ok {
+		chat.removeLastMessage()
 		return AIReply{}, false
 	}
 
