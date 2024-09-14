@@ -29,7 +29,8 @@ type AiConfig struct {
 	BaseUrl  string `koanf:"base_url"`
 	ApiKey   string `koanf:"api_key"`
 	Model    string
-	NCtx     int `koanf:"n_ctx"`
+	AltModel string `koanf:"alt_model"`
+	NCtx     int    `koanf:"n_ctx"`
 	Temp     float64
 	TopK     int           `koanf:"tok_k"`
 	RepPen   float64       `koanf:"rep_pen"`

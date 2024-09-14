@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -117,6 +118,8 @@ func (chat *aiChat) restart() {
 
 type AI struct {
 	llm     llms.Model
+	altLlm  llms.Model
+	isAlt   atomic.Bool
 	chats   imcache.Cache[int64, *aiChat]
 	opts    []llms.CallOption
 	log     *zap.SugaredLogger
@@ -162,6 +165,12 @@ func NewAI(cfg AiConfig) (*AI, bool) {
 			opts = append(opts, openai.WithModel(cfg.Model))
 		}
 		ai.llm, err = openai.New(opts...)
+
+		opts = opts[:2]
+		if cfg.AltModel != "" {
+			opts = append(opts, openai.WithModel(cfg.AltModel))
+		}
+		ai.altLlm, err = openai.New(opts...)
 	case "mistral":
 		opts := make([]mistral.Option, 0)
 		if cfg.BaseUrl != "" {
@@ -191,6 +200,10 @@ func NewAI(cfg AiConfig) (*AI, bool) {
 	return ai, true
 }
 
+func (ai *AI) IsAltModel() bool {
+	return ai.isAlt.Load()
+}
+
 func (ai *AI) IsChatStarted(chatID int64) bool {
 	_, exists := ai.chats.Get(chatID)
 	return exists
@@ -207,11 +220,56 @@ func (ai *AI) StartChat(chatID int64, prompt string, maxHistory int) {
 	ai.log.Infow("chat started", "chat_id", chatID)
 }
 
+func (ai *AI) generate(chatID int64, chat *aiChat) (*llms.ContentResponse, bool) {
+	llm := ai.llm
+	isAlt := ai.isAlt.Load()
+	if isAlt {
+		llm = ai.altLlm
+	}
+
+	resp, err := llm.GenerateContent(context.Background(), chat.messages, ai.opts...)
+	if err == nil {
+		return resp, true
+	}
+
+	idx := strings.Index(err.Error(), "Please try again in")
+	if idx <= 0 {
+		ai.log.Warnw(err.Error(), "chat_id", chatID)
+		return nil, false
+	}
+
+	chat.cleanHistory()
+
+	str := err.Error()[idx:]
+	str = regexp.MustCompile(`\d+`).FindString(str)
+	sec, err := strconv.Atoi(str)
+	if err != nil {
+		ai.log.Warnw(err.Error(), "chat_id", chatID)
+		return nil, false
+	}
+
+	sec++
+	dur := time.Duration(sec) * time.Second
+	if isAlt {
+		ai.log.Infow("sleeping", "sec", sec)
+		time.Sleep(dur)
+	} else {
+		ai.log.Infow("switching to alt model", "sec", sec)
+		ai.isAlt.Store(true)
+		time.AfterFunc(dur, func() {
+			ai.log.Infow("switching to main model")
+			ai.isAlt.Store(false)
+		})
+	}
+
+	return ai.generate(chatID, chat)
+}
+
 type AIReply struct {
-	CtxLen   int
-	ReplyLen int
 	Text     string
 	AtEnd    bool
+	CtxLen   int
+	ReplyLen int
 }
 
 func (ai *AI) GetReply(chatID int64, userMsg string, forceKeep bool) (AIReply, bool) {
@@ -232,28 +290,9 @@ func (ai *AI) GetReply(chatID int64, userMsg string, forceKeep bool) (AIReply, b
 
 	chat.addUserMessage(userMsg)
 
-	resp, err := ai.llm.GenerateContent(context.Background(), chat.messages, ai.opts...)
-	if err != nil {
-		ai.log.Warnw(err.Error(), "chat_id", chatID)
-		idx := strings.Index(err.Error(), "Please try again in")
-		if idx > 0 {
-			chat.cleanHistory()
-
-			str := err.Error()[idx:]
-			str = regexp.MustCompile(`\d+`).FindString(str)
-			sec, err := strconv.Atoi(str)
-			if err == nil {
-				ai.log.Infow("sleeping", "sec", sec)
-				time.Sleep(time.Duration(sec) * time.Second)
-				resp, err = ai.llm.GenerateContent(context.Background(), chat.messages, ai.opts...)
-			}
-			if err != nil {
-				ai.log.Warnw(err.Error(), "chat_id", chatID)
-				return AIReply{}, false
-			}
-		} else {
-			return AIReply{}, false
-		}
+	resp, ok := ai.generate(chatID, chat)
+	if !ok {
+		return AIReply{}, false
 	}
 
 	if len(resp.Choices) == 0 {
@@ -266,9 +305,9 @@ func (ai *AI) GetReply(chatID int64, userMsg string, forceKeep bool) (AIReply, b
 	}
 
 	reply := AIReply{
-		CtxLen: chat.curCtx,
 		Text:   resp.Choices[0].Content,
 		AtEnd:  resp.Choices[0].StopReason != "length",
+		CtxLen: chat.curCtx,
 	}
 	if reply.Text == "" {
 		ai.log.Warnw("model reply content is empty", "chat_id", chatID)
@@ -282,7 +321,7 @@ func (ai *AI) GetReply(chatID int64, userMsg string, forceKeep bool) (AIReply, b
 	duration := float64(endTime-beginTime) / 1000000
 	ai.log.Infow("ai message",
 		"chat_id", chatID,
-		"size", len(reply.Text),
+		"size", reply.ReplyLen,
 		"at_end", reply.AtEnd,
 		"dur", fmt.Sprintf("%.2f", duration))
 

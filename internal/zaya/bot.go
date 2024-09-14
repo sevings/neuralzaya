@@ -75,6 +75,7 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 	bot.bot.Handle("/save_role", bot.saveRole)
 	bot.bot.Handle("/help", bot.sendHelp)
 	bot.bot.Handle("/start", bot.welcome)
+	bot.bot.Handle("/get_model", bot.getCurrentModel)
 	bot.bot.Handle("/stat", bot.getBotStat)
 	bot.bot.Handle(tele.OnAddedToGroup, bot.welcome)
 	bot.bot.Handle(tele.OnText, bot.readMessage)
@@ -187,6 +188,7 @@ func (bot *Bot) sendHelp(c tele.Context) error {
 		"To alter my nickname, send /set_nickname.\n" +
 		"To see how frequently I'll respond to random messages in group chats, send /get_frequency.\n" +
 		"To adjust this setting, send /set_frequency.\n" +
+		"To check which model I'm currently using, send /get_model.\n" +
 		"To revisit this guidance, send /help."
 
 	return c.Reply(text)
@@ -645,6 +647,26 @@ func (bot *Bot) saveRole(c tele.Context) error {
 	bot.db.SaveRole(c.Chat().ID, lang, name)
 
 	return c.Reply("Role saved.")
+}
+
+func (bot *Bot) getCurrentModel(c tele.Context) error {
+	const msgTxt = "" +
+		"I am currently utilizing the <b>%s</b> model.\n" +
+		"The primary model is a more recent and sophisticated iteration of the LLM, " +
+		"albeit with certain usage limits. Occasionally, in the event of exceeding " +
+		"the allocated quota, I can seamlessly transition to the auxiliary model. " +
+		"It is essential to note that these limitations are universally applied, " +
+		"affecting all users collectively rather than individually. " +
+		"While the auxiliary model may not possess the same level of capabilities " +
+		"as its primary counterpart, it is more than adequate for the vast majority of tasks."
+
+	model := "primary"
+	if bot.ai.IsAltModel() {
+		model = "auxiliary"
+	}
+
+	msg := fmt.Sprintf(msgTxt, model)
+	return c.Reply(msg, tele.ModeHTML)
 }
 
 func (bot *Bot) getBotStat(c tele.Context) error {
