@@ -354,3 +354,15 @@ func (db *DB) GetCustomRoleCount() int64 {
 	db.db.Model(&BotRole{}).Where("chat_id <> 0").Count(&cnt)
 	return cnt
 }
+
+func (db *DB) LoadAllChatIDs() []int64 {
+	var chatIDs []int64
+
+	tx := db.db.Model(&ChatConfig{}).
+		Pluck("chat_id", &chatIDs)
+	if tx.Error != nil {
+		db.log.Warnw(tx.Error.Error())
+	}
+
+	return chatIDs
+}

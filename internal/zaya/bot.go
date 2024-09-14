@@ -18,6 +18,7 @@ type Bot struct {
 	ai  *AI
 	db  *DB
 	wlc string
+	adm int64
 	log *zap.SugaredLogger
 
 	continueMenu *tele.ReplyMarkup
@@ -33,6 +34,7 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 		ai:        ai,
 		db:        db,
 		wlc:       cfg.Welcome,
+		adm:       cfg.AdminID,
 		log:       zap.L().Named("bot").Sugar(),
 		startedAt: time.Now(),
 	}
@@ -77,6 +79,7 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 	bot.bot.Handle("/start", bot.welcome)
 	bot.bot.Handle("/get_model", bot.getCurrentModel)
 	bot.bot.Handle("/stat", bot.getBotStat)
+	bot.bot.Handle("/notify", bot.notifyUsers)
 	bot.bot.Handle(tele.OnAddedToGroup, bot.welcome)
 	bot.bot.Handle(tele.OnText, bot.readMessage)
 
@@ -667,6 +670,38 @@ func (bot *Bot) getCurrentModel(c tele.Context) error {
 
 	msg := fmt.Sprintf(msgTxt, model)
 	return c.Reply(msg, tele.ModeHTML)
+}
+
+func (bot *Bot) notifyUsers(c tele.Context) error {
+	if c.Sender().ID != bot.adm {
+		return nil
+	}
+
+	text := c.Message().Text
+	idx := strings.IndexByte(text, ' ') + 1
+	if idx > 0 {
+		text = text[idx:]
+		text = strings.TrimSpace(text)
+	}
+	if idx == 0 || len(text) == 0 {
+		const errStr = "Example usage: `/notify Notification message.`."
+		return c.Reply(errStr, tele.ModeMarkdown)
+	}
+
+	sentCnt := 0
+	chatIDs := bot.db.LoadAllChatIDs()
+	for _, chatID := range chatIDs {
+		_, err := bot.bot.Send(tele.ChatID(chatID), text, tele.ModeMarkdown)
+		if err != nil {
+			bot.log.Warnw("error", "chat", chatID, "err", err)
+		} else {
+			sentCnt++
+		}
+	}
+
+	bot.log.Infow("sent notifications", "chats", sentCnt)
+
+	return nil
 }
 
 func (bot *Bot) getBotStat(c tele.Context) error {

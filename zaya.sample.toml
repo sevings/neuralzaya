@@ -3,6 +3,7 @@ db_path    = "../zaya.sqlite"
 roles_path = "global_roles.toml"
 release    = false
 welcome    = "Привет в чате, зая!"
+admin_id   = 1
 
 [default_cfg]
 freq      = 0 # 0 .. 100

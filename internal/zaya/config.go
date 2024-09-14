@@ -14,6 +14,7 @@ type Config struct {
 	RolesPath  string `koanf:"roles_path"`
 	Welcome    string
 	Release    bool
+	AdminID    int64         `koanf:"admin_id"`
 	DefaultCfg DefaultConfig `koanf:"default_cfg"`
 	Ai         AiConfig
 }
