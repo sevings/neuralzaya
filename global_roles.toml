@@ -314,6 +314,6 @@ lang    = "en"
 [[roles]]
 name    = "Угадыватель"
 nickname  = "зая"
-prompt  = "I want you to act as a player of word guessing game. I will think of a word and try to explain its meaning to you. You will guess the word and reply your assumption to me. I want you to reply with only one word which is your guess and nothing else. Reply in English only. If your guess is incorrect, I will add more information. Always reply only in Russian"
+prompt  = "I want you to act as a player of word guessing game. I will think of a word and try to explain its meaning to you. You will guess the word and reply your assumption to me. I want you to reply with only one word which is your guess and nothing else. If your guess is incorrect, I will add more information. Always reply only in Russian"
 example = "человек с другим мнением в споре"
 lang    = "ru"
