@@ -3,17 +3,19 @@ package zaya
 import (
 	"context"
 	"fmt"
-	"github.com/erni27/imcache"
-	"github.com/tmc/langchaingo/llms"
-	"github.com/tmc/langchaingo/llms/mistral"
-	"github.com/tmc/langchaingo/llms/openai"
-	"go.uber.org/zap"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/erni27/imcache"
+	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/googleai"
+	"github.com/tmc/langchaingo/llms/mistral"
+	"github.com/tmc/langchaingo/llms/openai"
+	"go.uber.org/zap"
 )
 
 type aiChat struct {
@@ -43,11 +45,7 @@ func newAiChat(prompt string, nCtx, maxHistory int, log *zap.SugaredLogger) *aiC
 }
 
 func getMessageLen(text string, maxTok int) int {
-	msgLen := len(text)
-	if msgLen > maxTok {
-		msgLen = maxTok
-	}
-	return msgLen
+	return min(len(text), maxTok)
 }
 
 func (chat *aiChat) addMessage(role llms.ChatMessageType, text string, maxTok int) {
@@ -189,6 +187,22 @@ func NewAI(cfg AiConfig) (*AI, bool) {
 			opts = append(opts, mistral.WithModel(cfg.Model))
 		}
 		ai.llm, err = mistral.New(opts...)
+	case "googleai":
+		opts := make([]googleai.Option, 0)
+		opts = append(opts, googleai.WithHarmThreshold(googleai.HarmBlockNone))
+		if cfg.ApiKey != "" {
+			opts = append(opts, googleai.WithAPIKey(cfg.ApiKey))
+		}
+		if cfg.Model != "" {
+			opts = append(opts, googleai.WithDefaultModel(cfg.Model))
+		}
+		ai.llm, err = googleai.New(context.Background(), opts...)
+
+		opts = opts[:2]
+		if cfg.AltModel != "" {
+			opts = append(opts, googleai.WithDefaultModel(cfg.AltModel))
+		}
+		ai.altLlm, err = googleai.New(context.Background(), opts...)
 	default:
 		err = fmt.Errorf("unknown AI provider: %s", cfg.Provider)
 	}
@@ -323,9 +337,10 @@ func (ai *AI) GetReply(chatID int64, userMsg string, forceKeep bool) (AIReply, b
 		ai.log.Warnf("model returned %d choices instead of one", len(resp.Choices))
 	}
 
+	choice := resp.Choices[0]
 	reply := AIReply{
-		Text:   resp.Choices[0].Content,
-		AtEnd:  resp.Choices[0].StopReason != "length",
+		Text:   choice.Content,
+		AtEnd:  choice.StopReason != "length" && choice.StopReason != "FinishReasonMaxTokens",
 		CtxLen: chat.curCtx,
 	}
 	if reply.Text == "" {
