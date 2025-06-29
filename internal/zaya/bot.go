@@ -2,15 +2,16 @@ package zaya
 
 import (
 	"fmt"
-	"go.uber.org/zap"
-	tele "gopkg.in/telebot.v3"
-	"gopkg.in/telebot.v3/middleware"
 	"math"
 	"math/rand"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
+	tele "gopkg.in/telebot.v3"
+	"gopkg.in/telebot.v3/middleware"
 )
 
 type Bot struct {
@@ -395,57 +396,125 @@ func (bot *Bot) sendAiReply(msg *tele.Message, userMsg string, isReply bool) err
 	}
 }
 
-func escapeSpecialChars(s string) string {
-	var result strings.Builder
-	result.Grow(len(s))
+func prepareMessageText(s string) []string {
+	const maxChunkSize = 4000
 
-	inTripleQuote := false
-	inBackQuote := false
-	isBoldText := false
+	var chunks []string
+	var currentChunk strings.Builder
+	currentChunk.Grow(maxChunkSize + 100) // Extra space for tags
+
+	var inTripleQuote, inBackQuote, isBoldText bool
+	var lastNewlineInBuffer, lastEndInBuffer, lastSpaceInBuffer int
+
 	for i := 0; i < len(s); i++ {
 		c := s[i]
+
 		if c == '`' {
 			if i+2 < len(s) && s[i+1] == '`' && s[i+2] == '`' && i > 0 && s[i-1] == '\n' {
 				inTripleQuote = !inTripleQuote
-				result.WriteString("```")
+				currentChunk.WriteString("```")
 				i += 2
 			} else if !inTripleQuote && (i == 0 || s[i-1] != '\\') {
 				inBackQuote = !inBackQuote
-				result.WriteByte(c)
+				currentChunk.WriteByte(c)
 			} else {
 				if inTripleQuote && s[i-1] != '\\' {
-					result.WriteByte('\\')
+					currentChunk.WriteByte('\\')
 				}
-				result.WriteByte(c)
+				currentChunk.WriteByte(c)
 			}
 		} else if c == '\\' && (inTripleQuote || inBackQuote) {
 			if (i == 0 || s[i-1] != '\\') && (i+1 == len(s) || (s[i+1] != '\\' && s[i+1] != '`')) {
-				result.WriteByte('\\')
+				currentChunk.WriteByte('\\')
 			}
-			result.WriteByte(c)
+			currentChunk.WriteByte(c)
 		} else if c == '*' && i+1 < len(s) && s[i+1] == '*' && !inTripleQuote && !inBackQuote {
 			isBoldText = !isBoldText
-			result.WriteString("*")
+			currentChunk.WriteByte('*')
 			i++
 		} else if !inTripleQuote && !inBackQuote && strings.ContainsRune("_^*[]()~>#+-|{}.!=", rune(c)) {
 			if i == 0 || s[i-1] != '\\' {
-				result.WriteByte('\\')
+				currentChunk.WriteByte('\\')
 			}
-			result.WriteByte(c)
+			currentChunk.WriteByte(c)
 		} else {
-			result.WriteByte(c)
+			currentChunk.WriteByte(c)
+		}
+
+		switch c {
+		case '\n':
+			lastNewlineInBuffer = currentChunk.Len()
+		case '.', '!', '?':
+			lastEndInBuffer = currentChunk.Len()
+		case ' ':
+			lastSpaceInBuffer = currentChunk.Len()
+		}
+
+		if currentChunk.Len() >= maxChunkSize {
+			var splitPoint int
+			if lastNewlineInBuffer > 0 {
+				splitPoint = lastNewlineInBuffer
+			} else if lastEndInBuffer > 0 {
+				splitPoint = lastEndInBuffer + 1
+			} else if lastSpaceInBuffer > 0 {
+				splitPoint = lastSpaceInBuffer
+			} else {
+				splitPoint = currentChunk.Len()
+			}
+
+			bufferContent := currentChunk.String()
+
+			leftPart := bufferContent[:splitPoint]
+			rightPart := bufferContent[splitPoint:]
+
+			var leftChunk strings.Builder
+			leftChunk.WriteString(leftPart)
+			if isBoldText {
+				leftChunk.WriteByte('*')
+			} else if inBackQuote {
+				leftChunk.WriteByte('`')
+			} else if inTripleQuote {
+				leftChunk.WriteString("\n```")
+			}
+
+			chunks = append(chunks, leftChunk.String())
+
+			currentChunk.Reset()
+			currentChunk.Grow(maxChunkSize + 100)
+
+			if inTripleQuote {
+				currentChunk.WriteString("```\n")
+			} else if inBackQuote {
+				currentChunk.WriteByte('`')
+			} else if isBoldText {
+				currentChunk.WriteByte('*')
+			}
+
+			currentChunk.WriteString(rightPart)
+
+			lastNewlineInBuffer = 0
+			lastEndInBuffer = 0
+			lastSpaceInBuffer = 0
 		}
 	}
 
 	if inTripleQuote {
-		result.WriteString("\n```")
+		currentChunk.WriteString("\n```")
 	} else if inBackQuote {
-		result.WriteByte('`')
+		currentChunk.WriteByte('`')
 	} else if isBoldText {
-		result.WriteString("*")
+		currentChunk.WriteByte('*')
 	}
 
-	return result.String()
+	if currentChunk.Len() > 0 {
+		chunks = append(chunks, currentChunk.String())
+	}
+
+	if len(chunks) == 0 {
+		return []string{s}
+	}
+
+	return chunks
 }
 
 func (bot *Bot) sendReply(msg *tele.Message, reply AIReply) error {
@@ -457,26 +526,34 @@ func (bot *Bot) sendReply(msg *tele.Message, reply AIReply) error {
 	bot.aiMsgLength.Add(int64(reply.ReplyLen))
 	bot.aiHstLength.Add(int64(reply.CtxLen))
 
-	escapedText := escapeSpecialChars(reply.Text)
+	escapedChunks := prepareMessageText(reply.Text)
 
 	var err error
-	if reply.AtEnd {
-		_, err = bot.bot.Reply(msg, escapedText, tele.ModeMarkdownV2)
-	} else {
-		_, err = bot.bot.Reply(msg, escapedText, bot.continueMenu, tele.ModeMarkdownV2)
-	}
+	for i, chunk := range escapedChunks {
+		isLast := i == len(escapedChunks)-1
 
-	if err != nil {
-		bot.log.Warnw("error", "err", err, "text", reply.Text)
-
-		if reply.AtEnd {
-			_, err = bot.bot.Reply(msg, reply.Text, tele.ModeDefault)
+		if !isLast || reply.AtEnd {
+			_, err = bot.bot.Reply(msg, chunk, tele.ModeMarkdownV2)
 		} else {
-			_, err = bot.bot.Reply(msg, reply.Text, bot.continueMenu, tele.ModeDefault)
+			_, err = bot.bot.Reply(msg, chunk, bot.continueMenu, tele.ModeMarkdownV2)
+		}
+
+		if err != nil {
+			bot.log.Warnw("error", "err", err, "text", chunk)
+
+			if !isLast || reply.AtEnd {
+				_, err = bot.bot.Reply(msg, chunk, tele.ModeDefault)
+			} else {
+				_, err = bot.bot.Reply(msg, chunk, bot.continueMenu, tele.ModeDefault)
+			}
+		}
+
+		if err != nil {
+			return err
 		}
 	}
 
-	return err
+	return nil
 }
 
 func (bot *Bot) welcome(c tele.Context) error {
