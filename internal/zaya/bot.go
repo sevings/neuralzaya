@@ -2,6 +2,7 @@ package zaya
 
 import (
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"strconv"
@@ -84,6 +85,10 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 	bot.bot.Handle(tele.OnAddedToGroup, bot.welcome)
 	bot.bot.Handle(tele.OnText, bot.readMessage)
 
+	if cfg.Ai.Provider == "googleai" {
+		bot.bot.Handle(tele.OnPhoto, bot.readMessage)
+	}
+
 	return bot, true
 }
 
@@ -115,7 +120,8 @@ func (bot *Bot) logMessage(c tele.Context, beginTime int64, err error) {
 		"user_name", c.Sender().Username,
 		"is_cmd", isCmd,
 		"cmd", cmd,
-		"size", len(c.Text()),
+		"len", len(c.Text()),
+		"has_photo", c.Message().Photo != nil,
 		"dur", fmt.Sprintf("%.2f", duration),
 		"err", err)
 }
@@ -375,7 +381,31 @@ func (bot *Bot) sendAiReply(msg *tele.Message, userMsg string, isReply bool) err
 	defer ticker.Stop()
 
 	go func() {
-		reply, ok := bot.ai.GetReply(msg.Chat.ID, userMsg, isReply)
+		req := AIRequest{
+			ChatID:    msg.Chat.ID,
+			Text:      userMsg,
+			ForceKeep: isReply,
+		}
+
+		if msg.Photo != nil {
+			rc, err := bot.bot.File(&msg.Photo.File)
+			if err != nil {
+				bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+			}
+			defer rc.Close()
+			data, err := io.ReadAll(rc)
+			if err != nil {
+				bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+			} else {
+				req.Image = &Image{
+					Data:   data,
+					Height: msg.Photo.Height,
+					Width:  msg.Photo.Width,
+				}
+			}
+		}
+
+		reply, ok := bot.ai.GetReply(req)
 		if ok {
 			ch <- reply
 		} else {

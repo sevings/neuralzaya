@@ -21,47 +21,83 @@ import (
 type aiChat struct {
 	messages []llms.MessageContent
 	msgLens  []int
+	msgSizes []int
 	curCtx   int
+	curSize  int
 	maxCtx   int
+	maxSize  int
 	maxHst   int
 	lastTime time.Time
 	hstLock  sync.Mutex
 	log      *zap.SugaredLogger
 }
 
-func newAiChat(prompt string, nCtx, maxHistory int, log *zap.SugaredLogger) *aiChat {
+func newAiChat(prompt string, nCtx, maxSize, maxHistory int, log *zap.SugaredLogger) *aiChat {
 	chat := &aiChat{
 		messages: make([]llms.MessageContent, 0, 3),
 		msgLens:  make([]int, 0, 3),
+		msgSizes: make([]int, 0, 3),
 		maxCtx:   nCtx,
+		maxSize:  maxSize,
 		maxHst:   maxHistory,
 		lastTime: time.Now(),
 		log:      log,
 	}
 
-	chat.addMessage(llms.ChatMessageTypeSystem, prompt, 4000)
+	chat.addMessage(llms.ChatMessageTypeSystem, prompt, nil, 4000)
 
 	return chat
 }
 
-func getMessageLen(text string, maxTok int) int {
-	return min(len(text), maxTok)
+func getMessageLen(text string, maxTextTok int, img *Image) int {
+	res := min(len(text), maxTextTok)
+	if img != nil {
+		res += calculateImageTokens(img.Width, img.Height)
+	}
+	return res
 }
 
-func (chat *aiChat) addMessage(role llms.ChatMessageType, text string, maxTok int) {
+func calculateImageTokens(width, height int) int {
+	if width <= 384 && height <= 384 {
+		return 258
+	}
+
+	// Calculate number of 768x768 tiles needed
+	tilesX := (width + 767) / 768  // Ceiling division
+	tilesY := (height + 767) / 768 // Ceiling division
+	totalTiles := tilesX * tilesY
+
+	return totalTiles * 258
+}
+
+func (chat *aiChat) addMessage(role llms.ChatMessageType, text string, img *Image, maxTok int) {
 	msg := llms.MessageContent{
 		Role:  role,
 		Parts: make([]llms.ContentPart, 0),
 	}
 
-	part := llms.TextPart(text)
-	msg.Parts = append(msg.Parts, part)
+	size := 0
+	if img != nil {
+		imagePart := llms.BinaryPart("image/jpeg", img.Data)
+		msg.Parts = append(msg.Parts, imagePart)
+		size += len(imagePart.Data)
+	}
+
+	if text != "" {
+		textPart := llms.TextPart(text)
+		msg.Parts = append(msg.Parts, textPart)
+		size += len(textPart.Text)
+	}
+
 	chat.messages = append(chat.messages, msg)
 	chat.lastTime = time.Now()
 
-	msgLen := getMessageLen(text, maxTok)
+	msgLen := getMessageLen(text, maxTok, img)
 	chat.msgLens = append(chat.msgLens, msgLen)
 	chat.curCtx += msgLen
+
+	chat.msgSizes = append(chat.msgSizes, size)
+	chat.curSize += size
 
 	if (chat.maxCtx > 0 && chat.curCtx >= chat.maxCtx) ||
 		(chat.maxHst > 0 && len(chat.messages)-1 > chat.maxHst) {
@@ -69,17 +105,19 @@ func (chat *aiChat) addMessage(role llms.ChatMessageType, text string, maxTok in
 	}
 }
 
-func (chat *aiChat) addUserMessage(text string) {
-	chat.addMessage(llms.ChatMessageTypeHuman, text, 4000)
+func (chat *aiChat) addUserMessage(text string, img *Image) {
+	chat.addMessage(llms.ChatMessageTypeHuman, text, img, 4000)
 }
 
 func (chat *aiChat) addBotMessage(text string, maxTok int) {
-	chat.addMessage(llms.ChatMessageTypeAI, text, maxTok)
+	chat.addMessage(llms.ChatMessageTypeAI, text, nil, maxTok)
 }
 
 func (chat *aiChat) removeLastMessage() {
 	chat.curCtx -= chat.msgLens[len(chat.msgLens)-1]
 	chat.msgLens = chat.msgLens[:len(chat.msgLens)-1]
+	chat.curSize -= chat.msgSizes[len(chat.msgSizes)-1]
+	chat.msgSizes = chat.msgSizes[:len(chat.msgSizes)-1]
 	chat.messages = chat.messages[:len(chat.messages)-1]
 }
 
@@ -95,18 +133,64 @@ func (chat *aiChat) cleanHistory() {
 			(chat.maxHst > 0 && msgCnt-rmCnt > chat.maxHst)) {
 		rmCnt++
 		chat.curCtx -= chat.msgLens[rmCnt]
+		chat.curSize -= chat.msgSizes[rmCnt]
 	}
 	for (rmCnt == 0 || rmCnt%2 != 0) && rmCnt < msgCnt {
 		rmCnt++
 		chat.curCtx -= chat.msgLens[rmCnt]
+		chat.curSize -= chat.msgSizes[rmCnt]
 	}
 
 	chat.msgLens = append(chat.msgLens[:1], chat.msgLens[rmCnt+1:]...)
+	chat.msgSizes = append(chat.msgSizes[:1], chat.msgSizes[rmCnt+1:]...)
 	chat.messages = append(chat.messages[:1], chat.messages[rmCnt+1:]...)
 
 	chat.log.Infow("clean history",
 		"removed", rmCnt,
 		"left", len(chat.messages),
+		"ctx", chat.curCtx)
+}
+
+func (chat *aiChat) cleanData() {
+	rmCnt := 0
+	for i := range chat.messages {
+		if chat.curSize < chat.maxSize {
+			break
+		}
+
+		msg := chat.messages[i]
+		if len(msg.Parts) == 1 {
+			_, ok := msg.Parts[0].(llms.TextContent)
+			if ok {
+				continue
+			}
+		}
+
+		text := ""
+		for _, part := range msg.Parts {
+			if textPart, ok := part.(llms.TextContent); ok {
+				text = textPart.Text
+				break
+			}
+		}
+		if text == "" {
+			text = "(uploaded file)"
+		}
+
+		rmCnt += len(msg.Parts) - 1
+		rmSize := chat.msgSizes[i] - len(text)
+		chat.msgSizes[i] = len(text)
+		chat.curSize -= rmSize
+
+		msg.Parts = make([]llms.ContentPart, 1)
+		msg.Parts[0] = llms.TextPart(text)
+
+		chat.messages[i] = msg
+	}
+
+	chat.log.Infow("clean data",
+		"removed files", rmCnt,
+		"left size", chat.curSize,
 		"ctx", chat.curCtx)
 }
 
@@ -116,7 +200,9 @@ func (chat *aiChat) isExpired(maxDur time.Duration) bool {
 
 func (chat *aiChat) restart() {
 	chat.curCtx = chat.msgLens[0]
+	chat.curSize = chat.msgSizes[0]
 	chat.msgLens = chat.msgLens[:1]
+	chat.msgSizes = chat.msgSizes[:1]
 	chat.messages = chat.messages[:1]
 }
 
@@ -129,16 +215,18 @@ type AI struct {
 	log     *zap.SugaredLogger
 	maxCtx  int
 	maxTok  int
+	maxSize int
 	maxDur  time.Duration
 	chatExp imcache.Expiration
 }
 
 func NewAI(cfg AiConfig) (*AI, bool) {
 	ai := &AI{
-		opts:   make([]llms.CallOption, 0),
-		log:    zap.L().Named("ai").Sugar(),
-		maxCtx: cfg.NCtx - cfg.MaxTok,
-		maxTok: cfg.MaxTok,
+		opts:    make([]llms.CallOption, 0),
+		log:     zap.L().Named("ai").Sugar(),
+		maxCtx:  cfg.NCtx - cfg.MaxTok,
+		maxTok:  cfg.MaxTok,
+		maxSize: cfg.MaxSize,
 	}
 
 	ai.maxDur = cfg.ExpTime
@@ -230,7 +318,7 @@ func (ai *AI) IsChatStarted(chatID int64) bool {
 }
 
 func (ai *AI) createChat(chatID int64, prompt string, maxHistory int) *aiChat {
-	chat := newAiChat(prompt, ai.maxCtx, maxHistory, ai.log)
+	chat := newAiChat(prompt, ai.maxCtx, ai.maxSize, maxHistory, ai.log)
 	ai.chats.Set(chatID, chat, ai.chatExp)
 	return chat
 }
@@ -271,6 +359,9 @@ func (ai *AI) generate(chatID int64, chat *aiChat, nTry int) (*llms.ContentRespo
 	}
 
 	chat.cleanHistory()
+	if chat.curSize > chat.maxSize {
+		chat.cleanData()
+	}
 
 	str := err.Error()[idx:]
 	str = regexp.MustCompile(`\d+`).FindString(str)
@@ -297,6 +388,19 @@ func (ai *AI) generate(chatID int64, chat *aiChat, nTry int) (*llms.ContentRespo
 	return ai.generate(chatID, chat, nTry+1)
 }
 
+type Image struct {
+	Data   []byte
+	Width  int
+	Height int
+}
+
+type AIRequest struct {
+	ChatID    int64
+	Text      string
+	Image     *Image
+	ForceKeep bool
+}
+
 type AIReply struct {
 	Text     string
 	AtEnd    bool
@@ -304,32 +408,32 @@ type AIReply struct {
 	ReplyLen int
 }
 
-func (ai *AI) GetReply(chatID int64, userMsg string, forceKeep bool) (AIReply, bool) {
+func (ai *AI) GetReply(req AIRequest) (AIReply, bool) {
 	beginTime := time.Now().UnixNano()
 
-	chat, ok := ai.chats.Get(chatID)
+	chat, ok := ai.chats.Get(req.ChatID)
 	if !ok {
-		ai.log.Warnw("chat is not started", "chat_id", chatID)
+		ai.log.Warnw("chat is not started", "chat_id", req.ChatID)
 		return AIReply{}, false
 	}
 
 	chat.hstLock.Lock()
 	defer chat.hstLock.Unlock()
 
-	if !forceKeep && chat.isExpired(ai.maxDur) {
+	if !req.ForceKeep && chat.isExpired(ai.maxDur) {
 		chat.restart()
 	}
 
-	chat.addUserMessage(userMsg)
+	chat.addUserMessage(req.Text, req.Image)
 
-	resp, ok := ai.generate(chatID, chat, 1)
+	resp, ok := ai.generate(req.ChatID, chat, 1)
 	if !ok {
 		chat.removeLastMessage()
 		return AIReply{}, false
 	}
 
 	if len(resp.Choices) == 0 {
-		ai.log.Warnw("no content returned from model", "chat_id", chatID)
+		ai.log.Warnw("no content returned from model", "chat_id", req.ChatID)
 		return AIReply{}, false
 	}
 
@@ -344,17 +448,21 @@ func (ai *AI) GetReply(chatID int64, userMsg string, forceKeep bool) (AIReply, b
 		CtxLen: chat.curCtx,
 	}
 	if reply.Text == "" {
-		ai.log.Warnw("model reply content is empty", "chat_id", chatID)
+		ai.log.Warnw("model reply content is empty", "chat_id", req.ChatID)
 		return AIReply{}, false
 	}
 
 	chat.addBotMessage(reply.Text, ai.maxTok)
 	reply.ReplyLen = chat.msgLens[len(chat.msgLens)-1]
 
+	if chat.curSize > chat.maxSize {
+		chat.cleanData()
+	}
+
 	endTime := time.Now().UnixNano()
 	duration := float64(endTime-beginTime) / 1000000
 	ai.log.Infow("ai message",
-		"chat_id", chatID,
+		"chat_id", req.ChatID,
 		"size", reply.ReplyLen,
 		"at_end", reply.AtEnd,
 		"dur", fmt.Sprintf("%.2f", duration))
@@ -368,10 +476,16 @@ func (ai *AI) GetAllMessages() []DialogMessage {
 
 	for chatID, chat := range chats {
 		for _, message := range chat.messages {
-			messages = append(messages, DialogMessage{
+			msg := DialogMessage{
 				ChatID: chatID,
-				Text:   message.Parts[0].(llms.TextContent).Text,
-			})
+			}
+			text, ok := message.Parts[len(message.Parts)-1].(llms.TextContent)
+			if ok {
+				msg.Text = text.Text
+			} else {
+				msg.Text = "(uploaded file)"
+			}
+			messages = append(messages, msg)
 		}
 	}
 
@@ -386,7 +500,7 @@ func (ai *AI) AddAllMessages(messages []DialogMessage, maxHst map[int64]int) {
 			chatID = msg.ChatID
 			chat = ai.createChat(chatID, msg.Text, maxHst[chatID])
 		} else if len(chat.messages)%2 == 1 {
-			chat.addUserMessage(msg.Text)
+			chat.addUserMessage(msg.Text, nil)
 		} else {
 			chat.addBotMessage(msg.Text, ai.maxTok)
 		}

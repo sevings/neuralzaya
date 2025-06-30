@@ -2,10 +2,11 @@ package zaya
 
 import (
 	"errors"
+	"time"
+
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
-	"time"
 )
 
 type Config struct {
@@ -32,6 +33,7 @@ type AiConfig struct {
 	Model    string
 	AltModel string `koanf:"alt_model"`
 	NCtx     int    `koanf:"n_ctx"`
+	MaxSize  int    `koanf:"max_size"`
 	Temp     float64
 	TopK     int           `koanf:"tok_k"`
 	RepPen   float64       `koanf:"rep_pen"`

@@ -17,6 +17,7 @@ api_key  = "your_groq_token"
 model    = "llama-3.1-70b-versatile"
 alt_model = "llama3-70b-8192"
 n_ctx    = 6000
+max_size = 5000000
 temp     = 0.7
 top_k    = 40
 max_tok  = 500
