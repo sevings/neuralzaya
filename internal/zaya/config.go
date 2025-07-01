@@ -26,6 +26,13 @@ type DefaultConfig struct {
 	Prompt   string
 }
 
+type Accept struct {
+	Images   bool `koanf:"images"`
+	Audio    bool `koanf:"audio"`
+	TextLen  int  `koanf:"text_len"`
+	AudioLen int  `koanf:"audio_len"`
+}
+
 type AiConfig struct {
 	Provider string
 	BaseUrl  string `koanf:"base_url"`
@@ -41,10 +48,7 @@ type AiConfig struct {
 	ExpTime  time.Duration `koanf:"exp_time"`
 	ChatExp  time.Duration `koanf:"chat_exp"`
 	Stop     []string
-	Accept   struct {
-		Images bool `koanf:"images"`
-		Audio  bool `koanf:"audio"`
-	} `koanf:"accept"`
+	Accept   Accept `koanf:"accept"`
 }
 
 func LoadConfig() (Config, error) {

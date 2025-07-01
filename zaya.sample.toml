@@ -29,3 +29,5 @@ stop     = [ ]
 [ai.accept]
 images = false
 audio  = false
+text_len  = 1000
+audio_len = 60

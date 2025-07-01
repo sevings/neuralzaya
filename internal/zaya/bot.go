@@ -21,6 +21,7 @@ type Bot struct {
 	db  *DB
 	wlc string
 	adm int64
+	acc Accept
 	log *zap.SugaredLogger
 
 	continueMenu *tele.ReplyMarkup
@@ -37,6 +38,7 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 		db:        db,
 		wlc:       cfg.Welcome,
 		adm:       cfg.AdminID,
+		acc:       cfg.Ai.Accept,
 		log:       zap.L().Named("bot").Sugar(),
 		startedAt: time.Now(),
 	}
@@ -85,10 +87,10 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 	bot.bot.Handle(tele.OnAddedToGroup, bot.welcome)
 	bot.bot.Handle(tele.OnText, bot.readMessage)
 
-	if cfg.Ai.Accept.Images {
+	if bot.acc.Images {
 		bot.bot.Handle(tele.OnPhoto, bot.readMessage)
 	}
-	if cfg.Ai.Accept.Audio {
+	if bot.acc.Audio {
 		bot.bot.Handle(tele.OnVoice, bot.readMessage)
 	}
 
@@ -125,6 +127,7 @@ func (bot *Bot) logMessage(c tele.Context, beginTime int64, err error) {
 		"cmd", cmd,
 		"len", len(c.Text()),
 		"has_photo", c.Message().Photo != nil,
+		"has_voice", c.Message().Voice != nil,
 		"dur", fmt.Sprintf("%.2f", duration),
 		"err", err)
 }
@@ -349,7 +352,7 @@ func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool) {
 		return true, true
 	}
 
-	if len(c.Text()) > 1000 {
+	if len(c.Text()) > bot.acc.TextLen {
 		return false, false
 	}
 
@@ -375,6 +378,57 @@ func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool) {
 	return false, false
 }
 
+func (bot *Bot) loadPhoto(msg *tele.Message) (*Image, bool) {
+	if !bot.acc.Images || msg.Photo == nil {
+		return nil, false
+	}
+
+	rc, err := bot.bot.File(&msg.Photo.File)
+	if err != nil {
+		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+		return nil, false
+	}
+	defer rc.Close()
+
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+		return nil, false
+	}
+
+	return &Image{
+		Data:    data,
+		Caption: msg.Photo.Caption,
+		Height:  msg.Photo.Height,
+		Width:   msg.Photo.Width,
+	}, true
+}
+
+func (bot *Bot) loadVoice(msg *tele.Message) (*Audio, bool) {
+	if !bot.acc.Audio || msg.Voice == nil || msg.Voice.Duration > bot.acc.AudioLen {
+		return nil, false
+	}
+
+	rc, err := bot.bot.File(&msg.Voice.File)
+	if err != nil {
+		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+		return nil, false
+	}
+	defer rc.Close()
+
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+		return nil, false
+	}
+
+	return &Audio{
+		Data:     data,
+		Caption:  msg.Voice.Caption,
+		Duration: msg.Voice.Duration,
+	}, true
+}
+
 func (bot *Bot) getAiReply(msg *tele.Message, userMsg string, isReply bool) (AIReply, bool) {
 	req := AIRequest{
 		ChatID:    msg.Chat.ID,
@@ -382,41 +436,12 @@ func (bot *Bot) getAiReply(msg *tele.Message, userMsg string, isReply bool) (AIR
 		ForceKeep: isReply,
 	}
 
-	if msg.Photo != nil {
-		rc, err := bot.bot.File(&msg.Photo.File)
-		if err != nil {
-			bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-		}
-		defer rc.Close()
-		data, err := io.ReadAll(rc)
-		if err != nil {
-			bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-		} else {
-			req.Image = &Image{
-				Data:    data,
-				Caption: msg.Photo.Caption,
-				Height:  msg.Photo.Height,
-				Width:   msg.Photo.Width,
-			}
-		}
+	if img, ok := bot.loadPhoto(msg); ok {
+		req.Image = img
 	}
 
-	if msg.Voice != nil {
-		rc, err := bot.bot.File(&msg.Voice.File)
-		if err != nil {
-			bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-		}
-		defer rc.Close()
-		data, err := io.ReadAll(rc)
-		if err != nil {
-			bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-		} else {
-			req.Audio = &Audio{
-				Data:     data,
-				Caption:  msg.Voice.Caption,
-				Duration: msg.Voice.Duration,
-			}
-		}
+	if audio, ok := bot.loadVoice(msg); ok {
+		req.Audio = audio
 	}
 
 	return bot.ai.GetReply(req)
