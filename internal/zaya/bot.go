@@ -557,24 +557,25 @@ func (bot *Bot) sendReply(msg *tele.Message, reply AIReply) error {
 	bot.aiHstLength.Add(int64(reply.CtxLen))
 
 	escapedChunks := prepareMessageText(reply.Text)
+	prevMsg := msg
 
 	var err error
 	for i, chunk := range escapedChunks {
 		isLast := i == len(escapedChunks)-1
 
 		if !isLast || reply.AtEnd {
-			_, err = bot.bot.Reply(msg, chunk, tele.ModeMarkdownV2)
+			prevMsg, err = bot.bot.Reply(prevMsg, chunk, tele.ModeMarkdownV2)
 		} else {
-			_, err = bot.bot.Reply(msg, chunk, bot.continueMenu, tele.ModeMarkdownV2)
+			prevMsg, err = bot.bot.Reply(prevMsg, chunk, bot.continueMenu, tele.ModeMarkdownV2)
 		}
 
 		if err != nil {
 			bot.log.Warnw("error", "err", err, "text", chunk)
 
 			if !isLast || reply.AtEnd {
-				_, err = bot.bot.Reply(msg, chunk, tele.ModeDefault)
+				prevMsg, err = bot.bot.Reply(prevMsg, chunk, tele.ModeDefault)
 			} else {
-				_, err = bot.bot.Reply(msg, chunk, bot.continueMenu, tele.ModeDefault)
+				prevMsg, err = bot.bot.Reply(prevMsg, chunk, bot.continueMenu, tele.ModeDefault)
 			}
 		}
 
