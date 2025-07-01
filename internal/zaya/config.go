@@ -41,6 +41,9 @@ type AiConfig struct {
 	ExpTime  time.Duration `koanf:"exp_time"`
 	ChatExp  time.Duration `koanf:"chat_exp"`
 	Stop     []string
+	Accept   struct {
+		Images bool `koanf:"images"`
+	} `koanf:"accept"`
 }
 
 func LoadConfig() (Config, error) {

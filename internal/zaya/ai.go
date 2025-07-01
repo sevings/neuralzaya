@@ -222,6 +222,7 @@ type AI struct {
 	maxCtx  int
 	maxTok  int
 	maxSize int
+	accImgs bool
 	maxDur  time.Duration
 	chatExp imcache.Expiration
 }
@@ -233,6 +234,7 @@ func NewAI(cfg AiConfig) (*AI, bool) {
 		maxCtx:  cfg.NCtx - cfg.MaxTok,
 		maxTok:  cfg.MaxTok,
 		maxSize: cfg.MaxSize,
+		accImgs: cfg.Accept.Images,
 	}
 
 	ai.maxDur = cfg.ExpTime
@@ -408,6 +410,10 @@ type AIRequest struct {
 	ForceKeep bool
 }
 
+func (req AIRequest) isEmpty() bool {
+	return req.Text == "" && (req.Image == nil || len(req.Image.Data) == 0)
+}
+
 type AIReply struct {
 	Text     string
 	AtEnd    bool
@@ -417,6 +423,14 @@ type AIReply struct {
 
 func (ai *AI) GetReply(req AIRequest) (AIReply, bool) {
 	beginTime := time.Now().UnixNano()
+
+	if !ai.accImgs {
+		req.Image = nil
+	}
+
+	if req.isEmpty() {
+		return AIReply{}, false
+	}
 
 	chat, ok := ai.chats.Get(req.ChatID)
 	if !ok {

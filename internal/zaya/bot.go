@@ -85,7 +85,7 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 	bot.bot.Handle(tele.OnAddedToGroup, bot.welcome)
 	bot.bot.Handle(tele.OnText, bot.readMessage)
 
-	if cfg.Ai.Provider == "googleai" {
+	if cfg.Ai.Accept.Images {
 		bot.bot.Handle(tele.OnPhoto, bot.readMessage)
 	}
 
@@ -643,7 +643,8 @@ func (bot *Bot) readMessage(c tele.Context) error {
 	mention := "@" + bot.bot.Me.Username
 	msg := c.Message()
 	text := c.Text()
-	if msg.ReplyTo != nil && msg.ReplyTo.Text != "" &&
+	if msg.ReplyTo != nil &&
+		(msg.ReplyTo.Text != "" || msg.ReplyTo.Photo != nil) &&
 		msg.Sender.ID != bot.bot.Me.ID &&
 		strings.Contains(text, mention) {
 		msg = msg.ReplyTo
