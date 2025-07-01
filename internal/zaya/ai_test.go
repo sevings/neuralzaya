@@ -841,8 +841,8 @@ func TestCleanDataRemovesAudio(t *testing.T) {
 	require.Equal(t, 1, len(audioMsg.Parts))
 	textPart, ok := audioMsg.Parts[0].(llms.TextContent)
 	require.True(t, ok)
-	// The cleanData function finds the first text part - in this case it's the audio caption
-	require.Equal(t, "Large audio file", textPart.Text)
+	// The cleanData function finds the last text part
+	require.Equal(t, "Check this audio", textPart.Text)
 }
 
 func TestCleanDataWithUploadedAudioText(t *testing.T) {

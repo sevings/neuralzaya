@@ -202,8 +202,8 @@ func (chat *aiChat) cleanData() {
 		}
 
 		text := ""
-		for _, part := range msg.Parts {
-			if textPart, ok := part.(llms.TextContent); ok {
+		for i := len(msg.Parts) - 1; i >= 0; i-- {
+			if textPart, ok := msg.Parts[i].(llms.TextContent); ok {
 				text = textPart.Text
 				break
 			}
