@@ -913,7 +913,7 @@ func (bot *Bot) getBotStat(c tele.Context) error {
 		msg.WriteString(fmt.Sprintf("%s: %d\n", title, value))
 	}
 
-	uptimeDays := time.Now().Sub(bot.startedAt).Hours() / 24
+	uptimeDays := time.Since(bot.startedAt).Hours() / 24
 	addF64("Uptime (days)", uptimeDays)
 
 	totalMsgCnt := bot.aiMSgCount.Load()

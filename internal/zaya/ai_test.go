@@ -44,7 +44,7 @@ func (chat *aiChat) getMessageCount() int {
 }
 
 func testHistoryLimit(t *testing.T, chat *aiChat) {
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		if i%2 == 0 {
 			chat.addUserTextMessage("12345")
 		} else {
@@ -57,11 +57,11 @@ func testHistoryLimit(t *testing.T, chat *aiChat) {
 
 func testContextLimit(t *testing.T, chat *aiChat) {
 	text := ""
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		text += "1234567890"
 	}
 
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		if i%2 == 0 {
 			chat.addUserTextMessage(text)
 		} else {
@@ -276,7 +276,7 @@ func TestCleanDataRemovesImages(t *testing.T) {
 	chat := newAiChat("System", 10000, 30, 10, logger) // Very small maxSize to trigger cleanup
 
 	// Add messages with images to exceed size limit
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		img := &Image{
 			Data:   make([]byte, 20), // 20 bytes of image data each
 			Width:  300,
@@ -335,7 +335,7 @@ func TestHistoryLimitWithImages(t *testing.T) {
 	chat := newAiChat("System", 10000, 100000, 6, logger) // maxHst = 6
 
 	// Add messages with images
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		if i%2 == 0 {
 			img := &Image{
 				Data:   []byte("image"),
@@ -357,7 +357,7 @@ func TestContextLimitWithImages(t *testing.T) {
 	chat := newAiChat("System", 300, 100000, 20, logger) // maxCtx = 300
 
 	// Add messages with large images to exceed context limit
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if i%2 == 0 {
 			img := &Image{
 				Data:   []byte("image"),
@@ -577,7 +577,7 @@ func TestContextManagementWithMixedContent(t *testing.T) {
 	chat := newAiChat("System", 1500, 100000, 20, logger) // Limited context
 
 	// Add alternating text and image messages
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if i%2 == 0 {
 			// Add large image message
 			img := &Image{
@@ -606,7 +606,7 @@ func TestSizeManagementWithImages(t *testing.T) {
 	chat := newAiChat("System", 100000, 200, 20, logger) // Limited size
 
 	// Add messages with large image data
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		img := &Image{
 			Data:   make([]byte, 100), // 100 bytes each
 			Width:  300,
@@ -941,7 +941,7 @@ func TestSizeManagementWithAudio(t *testing.T) {
 	chat.maxSize = 200 // Small size limit
 
 	// Add several audio messages
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		audio := &Audio{
 			Data:     make([]byte, 100), // Each audio is 100 bytes
 			Duration: 10,
