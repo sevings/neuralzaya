@@ -402,9 +402,10 @@ func (bot *Bot) sendAiReply(msg *tele.Message, userMsg string, isReply bool) err
 				bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
 			} else {
 				req.Image = &Image{
-					Data:   data,
-					Height: msg.Photo.Height,
-					Width:  msg.Photo.Width,
+					Data:    data,
+					Caption: msg.Photo.Caption,
+					Height:  msg.Photo.Height,
+					Width:   msg.Photo.Width,
 				}
 			}
 		}

@@ -81,6 +81,12 @@ func (chat *aiChat) addMessage(role llms.ChatMessageType, text string, img *Imag
 		imagePart := llms.BinaryPart("image/jpeg", img.Data)
 		msg.Parts = append(msg.Parts, imagePart)
 		size += len(imagePart.Data)
+
+		if img.Caption != "" {
+			captionPart := llms.TextPart(img.Caption)
+			msg.Parts = append(msg.Parts, captionPart)
+			size += len(captionPart.Text)
+		}
 	}
 
 	if text != "" {
@@ -389,9 +395,10 @@ func (ai *AI) generate(chatID int64, chat *aiChat, nTry int) (*llms.ContentRespo
 }
 
 type Image struct {
-	Data   []byte
-	Width  int
-	Height int
+	Data    []byte
+	Caption string
+	Width   int
+	Height  int
 }
 
 type AIRequest struct {
