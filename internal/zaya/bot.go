@@ -506,7 +506,7 @@ func prepareMessageText(s string) []string {
 		c := s[i]
 
 		if c == '`' {
-			if i+2 < len(s) && s[i+1] == '`' && s[i+2] == '`' && i > 0 && s[i-1] == '\n' {
+			if i+2 < len(s) && s[i+1] == '`' && s[i+2] == '`' && (i == 0 || s[i-1] == '\n') {
 				currentFlags ^= FlagTripleQuote
 				currentChunk.WriteString("```")
 				i += 2
