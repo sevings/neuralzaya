@@ -430,6 +430,16 @@ func (bot *Bot) sendAiReply(msg *tele.Message, userMsg string, isReply bool) err
 	}
 }
 
+// TextFlags represents formatting states in markdown text
+type TextFlags uint8
+
+const (
+	FlagNone        TextFlags = 0
+	FlagTripleQuote TextFlags = 1 << iota
+	FlagBackQuote
+	FlagBold
+)
+
 func prepareMessageText(s string) []string {
 	const maxChunkSize = 4000
 
@@ -437,36 +447,40 @@ func prepareMessageText(s string) []string {
 	var currentChunk strings.Builder
 	currentChunk.Grow(maxChunkSize + 100) // Extra space for tags
 
-	var inTripleQuote, inBackQuote, isBoldText bool
+	var currentFlags TextFlags
 	var lastNewlineInBuffer, lastEndInBuffer, lastSpaceInBuffer int
+	var flagsAtNewline, flagsAtEnd, flagsAtSpace TextFlags
 
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 
 		if c == '`' {
 			if i+2 < len(s) && s[i+1] == '`' && s[i+2] == '`' && i > 0 && s[i-1] == '\n' {
-				inTripleQuote = !inTripleQuote
+				currentFlags ^= FlagTripleQuote
 				currentChunk.WriteString("```")
 				i += 2
-			} else if !inTripleQuote && (i == 0 || s[i-1] != '\\') {
-				inBackQuote = !inBackQuote
+			} else if (currentFlags&FlagTripleQuote) == 0 && (i == 0 || s[i-1] != '\\') {
+				currentFlags ^= FlagBackQuote
 				currentChunk.WriteByte(c)
 			} else {
-				if inTripleQuote && s[i-1] != '\\' {
+				if (currentFlags&FlagTripleQuote) != 0 && s[i-1] != '\\' {
 					currentChunk.WriteByte('\\')
 				}
 				currentChunk.WriteByte(c)
 			}
-		} else if c == '\\' && (inTripleQuote || inBackQuote) {
+		} else if c == '\\' && (currentFlags&(FlagTripleQuote|FlagBackQuote)) != 0 {
 			if (i == 0 || s[i-1] != '\\') && (i+1 == len(s) || (s[i+1] != '\\' && s[i+1] != '`')) {
 				currentChunk.WriteByte('\\')
 			}
 			currentChunk.WriteByte(c)
-		} else if c == '*' && i+1 < len(s) && s[i+1] == '*' && !inTripleQuote && !inBackQuote {
-			isBoldText = !isBoldText
+		} else if c == '*' && i+2 < len(s) && s[i+1] == '*' && s[i+2] == '*' && (currentFlags&(FlagTripleQuote|FlagBackQuote)) == 0 {
+			currentChunk.WriteString("\\*\\*\\*")
+			i += 2
+		} else if c == '*' && i+1 < len(s) && s[i+1] == '*' && (currentFlags&(FlagTripleQuote|FlagBackQuote)) == 0 {
+			currentFlags ^= FlagBold
 			currentChunk.WriteByte('*')
 			i++
-		} else if !inTripleQuote && !inBackQuote && strings.ContainsRune("_^*[]()~>#+-|{}.!=", rune(c)) {
+		} else if (currentFlags&(FlagTripleQuote|FlagBackQuote)) == 0 && strings.ContainsRune("_^*[]()~>#+-|{}.!=", rune(c)) {
 			if i == 0 || s[i-1] != '\\' {
 				currentChunk.WriteByte('\\')
 			}
@@ -478,22 +492,31 @@ func prepareMessageText(s string) []string {
 		switch c {
 		case '\n':
 			lastNewlineInBuffer = currentChunk.Len()
+			flagsAtNewline = currentFlags
 		case '.', '!', '?':
 			lastEndInBuffer = currentChunk.Len()
+			flagsAtEnd = currentFlags
 		case ' ':
 			lastSpaceInBuffer = currentChunk.Len()
+			flagsAtSpace = currentFlags
 		}
 
 		if currentChunk.Len() >= maxChunkSize {
 			var splitPoint int
+			var splitFlags TextFlags
+
 			if lastNewlineInBuffer > 0 {
 				splitPoint = lastNewlineInBuffer
+				splitFlags = flagsAtNewline
 			} else if lastEndInBuffer > 0 {
 				splitPoint = lastEndInBuffer + 1
+				splitFlags = flagsAtEnd
 			} else if lastSpaceInBuffer > 0 {
 				splitPoint = lastSpaceInBuffer
+				splitFlags = flagsAtSpace
 			} else {
 				splitPoint = currentChunk.Len()
+				splitFlags = currentFlags
 			}
 
 			bufferContent := currentChunk.String()
@@ -503,11 +526,11 @@ func prepareMessageText(s string) []string {
 
 			var leftChunk strings.Builder
 			leftChunk.WriteString(leftPart)
-			if isBoldText {
+			if (splitFlags & FlagBold) != 0 {
 				leftChunk.WriteByte('*')
-			} else if inBackQuote {
+			} else if (splitFlags & FlagBackQuote) != 0 {
 				leftChunk.WriteByte('`')
-			} else if inTripleQuote {
+			} else if (splitFlags & FlagTripleQuote) != 0 {
 				leftChunk.WriteString("\n```")
 			}
 
@@ -516,11 +539,11 @@ func prepareMessageText(s string) []string {
 			currentChunk.Reset()
 			currentChunk.Grow(maxChunkSize + 100)
 
-			if inTripleQuote {
+			if (splitFlags & FlagTripleQuote) != 0 {
 				currentChunk.WriteString("```\n")
-			} else if inBackQuote {
+			} else if (splitFlags & FlagBackQuote) != 0 {
 				currentChunk.WriteByte('`')
-			} else if isBoldText {
+			} else if (splitFlags & FlagBold) != 0 {
 				currentChunk.WriteByte('*')
 			}
 
@@ -529,14 +552,17 @@ func prepareMessageText(s string) []string {
 			lastNewlineInBuffer = 0
 			lastEndInBuffer = 0
 			lastSpaceInBuffer = 0
+			flagsAtNewline = FlagNone
+			flagsAtEnd = FlagNone
+			flagsAtSpace = FlagNone
 		}
 	}
 
-	if inTripleQuote {
+	if (currentFlags & FlagTripleQuote) != 0 {
 		currentChunk.WriteString("\n```")
-	} else if inBackQuote {
+	} else if (currentFlags & FlagBackQuote) != 0 {
 		currentChunk.WriteByte('`')
-	} else if isBoldText {
+	} else if (currentFlags & FlagBold) != 0 {
 		currentChunk.WriteByte('*')
 	}
 
@@ -566,25 +592,29 @@ func (bot *Bot) sendReply(msg *tele.Message, reply AIReply) error {
 	var err error
 	for i, chunk := range escapedChunks {
 		isLast := i == len(escapedChunks)-1
+		curMsg := prevMsg
 
 		if !isLast || reply.AtEnd {
-			prevMsg, err = bot.bot.Reply(prevMsg, chunk, tele.ModeMarkdownV2)
+			curMsg, err = bot.bot.Reply(prevMsg, chunk, tele.ModeMarkdownV2)
 		} else {
-			prevMsg, err = bot.bot.Reply(prevMsg, chunk, bot.continueMenu, tele.ModeMarkdownV2)
+			curMsg, err = bot.bot.Reply(prevMsg, chunk, bot.continueMenu, tele.ModeMarkdownV2)
 		}
 
 		if err != nil {
 			bot.log.Warnw("error", "err", err, "text", chunk)
 
 			if !isLast || reply.AtEnd {
-				prevMsg, err = bot.bot.Reply(prevMsg, chunk, tele.ModeDefault)
+				curMsg, err = bot.bot.Reply(prevMsg, chunk, tele.ModeDefault)
 			} else {
-				prevMsg, err = bot.bot.Reply(prevMsg, chunk, bot.continueMenu, tele.ModeDefault)
+				curMsg, err = bot.bot.Reply(prevMsg, chunk, bot.continueMenu, tele.ModeDefault)
 			}
 		}
 
 		if err != nil {
 			return err
+		}
+		if curMsg != nil {
+			prevMsg = curMsg
 		}
 	}
 
