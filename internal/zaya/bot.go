@@ -334,7 +334,11 @@ func (bot *Bot) setMaxHistory(c tele.Context) error {
 }
 
 func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool) {
-	if len(c.Text()) == 0 || c.Text()[0] == '/' {
+	if len(c.Text()) > 0 && c.Text()[0] == '/' {
+		return false, false
+	}
+
+	if len(c.Text()) == 0 && c.Message().Photo == nil {
 		return false, false
 	}
 
@@ -361,7 +365,7 @@ func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool) {
 		return true, false
 	}
 
-	if rand.Intn(100) < cfg.Freq {
+	if c.Message().Photo == nil && rand.Intn(100) < cfg.Freq {
 		return true, cfg.Freq == 100
 	}
 
