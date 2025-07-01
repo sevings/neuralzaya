@@ -88,6 +88,9 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 	if cfg.Ai.Accept.Images {
 		bot.bot.Handle(tele.OnPhoto, bot.readMessage)
 	}
+	if cfg.Ai.Accept.Audio {
+		bot.bot.Handle(tele.OnVoice, bot.readMessage)
+	}
 
 	return bot, true
 }
@@ -338,7 +341,7 @@ func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool) {
 		return false, false
 	}
 
-	if len(c.Text()) == 0 && c.Message().Photo == nil {
+	if len(c.Text()) == 0 && c.Message().Photo == nil && c.Message().Voice == nil {
 		return false, false
 	}
 
@@ -365,11 +368,58 @@ func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool) {
 		return true, false
 	}
 
-	if c.Message().Photo == nil && rand.Intn(100) < cfg.Freq {
+	if c.Message().Photo == nil && c.Message().Voice == nil && rand.Intn(100) < cfg.Freq {
 		return true, cfg.Freq == 100
 	}
 
 	return false, false
+}
+
+func (bot *Bot) getAiReply(msg *tele.Message, userMsg string, isReply bool) (AIReply, bool) {
+	req := AIRequest{
+		ChatID:    msg.Chat.ID,
+		Text:      userMsg,
+		ForceKeep: isReply,
+	}
+
+	if msg.Photo != nil {
+		rc, err := bot.bot.File(&msg.Photo.File)
+		if err != nil {
+			bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+		}
+		defer rc.Close()
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+		} else {
+			req.Image = &Image{
+				Data:    data,
+				Caption: msg.Photo.Caption,
+				Height:  msg.Photo.Height,
+				Width:   msg.Photo.Width,
+			}
+		}
+	}
+
+	if msg.Voice != nil {
+		rc, err := bot.bot.File(&msg.Voice.File)
+		if err != nil {
+			bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+		}
+		defer rc.Close()
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+		} else {
+			req.Audio = &Audio{
+				Data:     data,
+				Caption:  msg.Voice.Caption,
+				Duration: msg.Voice.Duration,
+			}
+		}
+	}
+
+	return bot.ai.GetReply(req)
 }
 
 func (bot *Bot) sendAiReply(msg *tele.Message, userMsg string, isReply bool) error {
@@ -385,32 +435,7 @@ func (bot *Bot) sendAiReply(msg *tele.Message, userMsg string, isReply bool) err
 	defer ticker.Stop()
 
 	go func() {
-		req := AIRequest{
-			ChatID:    msg.Chat.ID,
-			Text:      userMsg,
-			ForceKeep: isReply,
-		}
-
-		if msg.Photo != nil {
-			rc, err := bot.bot.File(&msg.Photo.File)
-			if err != nil {
-				bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-			}
-			defer rc.Close()
-			data, err := io.ReadAll(rc)
-			if err != nil {
-				bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-			} else {
-				req.Image = &Image{
-					Data:    data,
-					Caption: msg.Photo.Caption,
-					Height:  msg.Photo.Height,
-					Width:   msg.Photo.Width,
-				}
-			}
-		}
-
-		reply, ok := bot.ai.GetReply(req)
+		reply, ok := bot.getAiReply(msg, userMsg, isReply)
 		if ok {
 			ch <- reply
 		} else {
@@ -644,7 +669,7 @@ func (bot *Bot) readMessage(c tele.Context) error {
 	msg := c.Message()
 	text := c.Text()
 	if msg.ReplyTo != nil &&
-		(msg.ReplyTo.Text != "" || msg.ReplyTo.Photo != nil) &&
+		(msg.ReplyTo.Text != "" || msg.ReplyTo.Photo != nil || msg.ReplyTo.Voice != nil) &&
 		msg.Sender.ID != bot.bot.Me.ID &&
 		strings.Contains(text, mention) {
 		msg = msg.ReplyTo

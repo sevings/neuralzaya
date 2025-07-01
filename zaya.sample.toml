@@ -28,3 +28,4 @@ stop     = [ ]
 
 [ai.accept]
 images = false
+audio  = false

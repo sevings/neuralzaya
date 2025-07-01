@@ -43,6 +43,7 @@ type AiConfig struct {
 	Stop     []string
 	Accept   struct {
 		Images bool `koanf:"images"`
+		Audio  bool `koanf:"audio"`
 	} `koanf:"accept"`
 }
 
