@@ -429,6 +429,29 @@ func (bot *Bot) loadVoice(msg *tele.Message) (*Audio, bool) {
 	}, true
 }
 
+func (bot *Bot) loadPage(msg *tele.Message) (string, bool) {
+	for _, e := range msg.Entities {
+		if e.Type == tele.EntityURL {
+			url := e.URL
+			if url == "" {
+				start, end := UTF16OffsetToUTF8(msg.Text, e.Offset, e.Length)
+				url = msg.Text[start:end]
+			}
+
+			bot.log.Infow("loading page", "url", url)
+			page, err := GetPageText(url)
+			if err != nil {
+				bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+				return "", false
+			}
+
+			return page, true
+		}
+	}
+
+	return "", false
+}
+
 func (bot *Bot) getAiReply(msg *tele.Message, userMsg string, isReply bool) (AIReply, bool) {
 	req := AIRequest{
 		ChatID:    msg.Chat.ID,
@@ -442,6 +465,10 @@ func (bot *Bot) getAiReply(msg *tele.Message, userMsg string, isReply bool) (AIR
 
 	if audio, ok := bot.loadVoice(msg); ok {
 		req.Audio = audio
+	}
+
+	if page, ok := bot.loadPage(msg); ok {
+		req.Document = page
 	}
 
 	return bot.ai.GetReply(req)

@@ -44,18 +44,21 @@ func newAiChat(prompt string, nCtx, maxSize, maxHistory int, log *zap.SugaredLog
 		log:      log,
 	}
 
-	chat.addMessage(llms.ChatMessageTypeSystem, prompt, nil, nil, 4000)
+	chat.addMessage(llms.ChatMessageTypeSystem, prompt, "", nil, nil, 4000)
 
 	return chat
 }
 
-func getMessageLen(text string, maxTextTok int, img *Image, audio *Audio) int {
+func getMessageLen(text string, maxTextTok int, doc string, img *Image, audio *Audio) int {
 	res := min(len(text), maxTextTok)
+	res += len(doc)
 	if img != nil {
 		res += calculateImageTokens(img.Width, img.Height)
+		res += len(img.Caption)
 	}
 	if audio != nil {
 		res += audio.Duration * 32
+		res += len(audio.Caption)
 	}
 	return res
 }
@@ -73,7 +76,7 @@ func calculateImageTokens(width, height int) int {
 	return totalTiles * 258
 }
 
-func (chat *aiChat) addMessage(role llms.ChatMessageType, text string, img *Image, audio *Audio, maxTok int) {
+func (chat *aiChat) addMessage(role llms.ChatMessageType, text, doc string, img *Image, audio *Audio, maxTok int) {
 	msg := llms.MessageContent{
 		Role:  role,
 		Parts: make([]llms.ContentPart, 0),
@@ -104,6 +107,12 @@ func (chat *aiChat) addMessage(role llms.ChatMessageType, text string, img *Imag
 		}
 	}
 
+	if doc != "" {
+		docPart := llms.TextPart(doc)
+		msg.Parts = append(msg.Parts, docPart)
+		size += len(docPart.Text)
+	}
+
 	if text != "" {
 		textPart := llms.TextPart(text)
 		msg.Parts = append(msg.Parts, textPart)
@@ -113,7 +122,7 @@ func (chat *aiChat) addMessage(role llms.ChatMessageType, text string, img *Imag
 	chat.messages = append(chat.messages, msg)
 	chat.lastTime = time.Now()
 
-	msgLen := getMessageLen(text, maxTok, img, audio)
+	msgLen := getMessageLen(text, maxTok, doc, img, audio)
 	chat.msgLens = append(chat.msgLens, msgLen)
 	chat.curCtx += msgLen
 
@@ -128,24 +137,24 @@ func (chat *aiChat) addMessage(role llms.ChatMessageType, text string, img *Imag
 
 const maxUserTokens = 4000
 
-func (chat *aiChat) addUserMessage(text string, img *Image, audio *Audio) {
-	chat.addMessage(llms.ChatMessageTypeHuman, text, img, audio, maxUserTokens)
+func (chat *aiChat) addUserMessage(text string, doc string, img *Image, audio *Audio) {
+	chat.addMessage(llms.ChatMessageTypeHuman, text, doc, img, audio, maxUserTokens)
 }
 
 func (chat *aiChat) addUserTextMessage(text string) {
-	chat.addMessage(llms.ChatMessageTypeHuman, text, nil, nil, maxUserTokens)
+	chat.addMessage(llms.ChatMessageTypeHuman, text, "", nil, nil, maxUserTokens)
 }
 
 func (chat *aiChat) addUserImageMessage(img *Image) {
-	chat.addMessage(llms.ChatMessageTypeHuman, "", img, nil, maxUserTokens)
+	chat.addMessage(llms.ChatMessageTypeHuman, "", "", img, nil, maxUserTokens)
 }
 
 func (chat *aiChat) addUserAudioMessage(audio *Audio) {
-	chat.addMessage(llms.ChatMessageTypeHuman, "", nil, audio, maxUserTokens)
+	chat.addMessage(llms.ChatMessageTypeHuman, "", "", nil, audio, maxUserTokens)
 }
 
 func (chat *aiChat) addBotMessage(text string, maxTok int) {
-	chat.addMessage(llms.ChatMessageTypeAI, text, nil, nil, maxTok)
+	chat.addMessage(llms.ChatMessageTypeAI, text, "", nil, nil, maxTok)
 }
 
 func (chat *aiChat) removeLastMessage() {
@@ -443,13 +452,14 @@ type Audio struct {
 type AIRequest struct {
 	ChatID    int64
 	Text      string
+	Document  string
 	Image     *Image
 	Audio     *Audio
 	ForceKeep bool
 }
 
 func (req AIRequest) isEmpty() bool {
-	return req.Text == "" &&
+	return req.Text == "" && req.Document == "" &&
 		(req.Image == nil || len(req.Image.Data) == 0) &&
 		(req.Audio == nil || len(req.Audio.Data) == 0)
 }
@@ -487,7 +497,7 @@ func (ai *AI) GetReply(req AIRequest) (AIReply, bool) {
 		chat.restart()
 	}
 
-	chat.addUserMessage(req.Text, req.Image, req.Audio)
+	chat.addUserMessage(req.Text, req.Document, req.Image, req.Audio)
 
 	resp, ok := ai.generate(req.ChatID, chat, 1)
 	if !ok {
@@ -563,7 +573,7 @@ func (ai *AI) AddAllMessages(messages []DialogMessage, maxHst map[int64]int) {
 			chatID = msg.ChatID
 			chat = ai.createChat(chatID, msg.Text, maxHst[chatID])
 		} else if len(chat.messages)%2 == 1 {
-			chat.addUserMessage(msg.Text, nil, nil)
+			chat.addUserMessage(msg.Text, "", nil, nil)
 		} else {
 			chat.addBotMessage(msg.Text, ai.maxTok)
 		}

@@ -1,10 +1,11 @@
 module neuralzaya
 
-go 1.23
+go 1.23.0
 
 toolchain go1.24.1
 
 require (
+	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/erni27/imcache v1.2.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/knadh/koanf/parsers/toml v0.1.0
@@ -13,6 +14,8 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/tmc/langchaingo v0.1.13
 	go.uber.org/zap v1.27.0
+	golang.org/x/net v0.39.0
+	golang.org/x/text v0.24.0
 	gopkg.in/telebot.v3 v3.2.1
 	gorm.io/gorm v1.25.10
 )
@@ -27,6 +30,7 @@ require (
 	cloud.google.com/go/iam v1.2.0 // indirect
 	cloud.google.com/go/longrunning v0.6.0 // indirect
 	cloud.google.com/go/vertexai v0.12.0 // indirect
+	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.10.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -60,12 +64,10 @@ require (
 	go.opentelemetry.io/otel/metric v1.29.0 // indirect
 	go.opentelemetry.io/otel/trace v1.29.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
-	golang.org/x/crypto v0.29.0 // indirect
-	golang.org/x/net v0.29.0 // indirect
+	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/oauth2 v0.23.0 // indirect
-	golang.org/x/sync v0.9.0 // indirect
-	golang.org/x/sys v0.27.0 // indirect
-	golang.org/x/text v0.20.0 // indirect
+	golang.org/x/sync v0.13.0 // indirect
+	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/time v0.6.0 // indirect
 	google.golang.org/api v0.197.0 // indirect
 	google.golang.org/genproto v0.0.0-20240903143218-8af14fe29dc1 // indirect
