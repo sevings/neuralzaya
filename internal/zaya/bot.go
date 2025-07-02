@@ -795,7 +795,11 @@ func (bot *Bot) readMessage(c tele.Context) error {
 	msg := c.Message()
 	text := c.Text()
 	if msg.ReplyTo != nil &&
-		(msg.ReplyTo.Text != "" || msg.ReplyTo.Photo != nil || msg.ReplyTo.Voice != nil) &&
+		(msg.ReplyTo.Text != "" ||
+			msg.ReplyTo.Photo != nil ||
+			msg.ReplyTo.Voice != nil ||
+			msg.ReplyTo.Video != nil ||
+			msg.ReplyTo.VideoNote != nil) &&
 		msg.Sender.ID != bot.bot.Me.ID &&
 		strings.Contains(text, mention) {
 		msg = msg.ReplyTo
