@@ -155,26 +155,26 @@ func TestCalculateImageTokens(t *testing.T) {
 
 func TestGetMessageLen(t *testing.T) {
 	// Test text only
-	length := getMessageLen("Hello world", 1000, "", nil, nil)
+	length := getMessageLen("Hello world", 1000, "", nil, nil, nil)
 	require.Equal(t, 11, length)
 
 	// Test text with limit
-	length = getMessageLen("Hello world", 5, "", nil, nil)
+	length = getMessageLen("Hello world", 5, "", nil, nil, nil)
 	require.Equal(t, 5, length)
 
 	// Test with small image
 	img := &Image{Width: 300, Height: 300}
-	length = getMessageLen("Hello", 1000, "", img, nil)
+	length = getMessageLen("Hello", 1000, "", img, nil, nil)
 	require.Equal(t, 5+258, length)
 
 	// Test with large image
 	img = &Image{Width: 1000, Height: 1000}
-	length = getMessageLen("Hello", 1000, "", img, nil)
+	length = getMessageLen("Hello", 1000, "", img, nil, nil)
 	require.Equal(t, 5+4*258, length)
 
 	// Test empty text with image
 	img = &Image{Width: 384, Height: 384}
-	length = getMessageLen("", 1000, "", img, nil)
+	length = getMessageLen("", 1000, "", img, nil, nil)
 	require.Equal(t, 258, length)
 }
 
@@ -192,7 +192,7 @@ func TestAddUserMessageWithImage(t *testing.T) {
 	initialCtx := chat.curCtx
 	initialSize := chat.curSize
 
-	chat.addUserMessage("Check this image", "", img, nil)
+	chat.addUserMessage("Check this image", "", img, nil, nil)
 
 	require.Equal(t, 2, chat.getMessageCount())
 	require.Equal(t, "Check this image", chat.getMessageText(1))
@@ -282,7 +282,7 @@ func TestCleanDataRemovesImages(t *testing.T) {
 			Width:  300,
 			Height: 300,
 		}
-		chat.addUserMessage("Test", "", img, nil) // Short text to focus on image size
+		chat.addUserMessage("Test", "", img, nil, nil) // Short text to focus on image size
 		chat.addBotMessage("OK", 50)
 	}
 
@@ -342,7 +342,7 @@ func TestHistoryLimitWithImages(t *testing.T) {
 				Width:  300,
 				Height: 300,
 			}
-			chat.addUserMessage("Message with image", "", img, nil)
+			chat.addUserMessage("Message with image", "", img, nil, nil)
 		} else {
 			chat.addBotMessage("Response", 50)
 		}
@@ -364,7 +364,7 @@ func TestContextLimitWithImages(t *testing.T) {
 				Width:  1000,
 				Height: 1000,
 			}
-			chat.addUserMessage("Test", "", img, nil) // 4 + 4*258 = 1036 tokens
+			chat.addUserMessage("Test", "", img, nil, nil) // 4 + 4*258 = 1036 tokens
 		} else {
 			chat.addBotMessage("Response", 50)
 		}
@@ -421,7 +421,7 @@ func TestAddMessageWithLargeImage(t *testing.T) {
 	initialCtx := chat.curCtx
 	initialSize := chat.curSize
 
-	chat.addUserMessage("Large image test", "", img, nil)
+	chat.addUserMessage("Check this image", "", img, nil, nil)
 
 	require.Equal(t, 2, chat.getMessageCount())
 
@@ -444,7 +444,7 @@ func TestRemoveLastMessageWithImage(t *testing.T) {
 	}
 
 	// Add message with image
-	chat.addUserMessage("Test message", "", img, nil)
+	chat.addUserMessage("Test message", "", img, nil, nil)
 
 	msgCountBefore := chat.getMessageCount()
 	ctxBefore := chat.curCtx
@@ -470,7 +470,7 @@ func TestCleanDataPreservesTextOnlyMessages(t *testing.T) {
 		Width:  300,
 		Height: 300,
 	}
-	chat.addUserMessage("Text with image", "", img, nil)
+	chat.addUserMessage("Text with image", "", img, nil, nil)
 	chat.addUserTextMessage("Text only 2")
 
 	initialTextOnly1 := chat.getMessageText(1)
@@ -503,7 +503,7 @@ func TestAIGetAllMessagesWithImages(t *testing.T) {
 		Width:  300,
 		Height: 300,
 	}
-	chat.addUserMessage("Message with image", "", img, nil)
+	chat.addUserMessage("Message with image", "", img, nil, nil)
 	chat.addBotMessage("Another bot response", 50)
 
 	// Add message with only image
@@ -564,7 +564,7 @@ func TestImageTokenCalculationIntegration(t *testing.T) {
 			}
 
 			initialCtx := chat.curCtx
-			chat.addUserMessage("Test image", "", img, nil)
+			chat.addUserMessage("Test image", "", img, nil, nil)
 
 			expectedTokens := 10 + tc.expected // "Test image" length + image tokens
 			require.Equal(t, initialCtx+expectedTokens, chat.curCtx)
@@ -585,7 +585,7 @@ func TestContextManagementWithMixedContent(t *testing.T) {
 				Width:  1000,
 				Height: 1000,
 			}
-			chat.addUserMessage("Image message", "", img, nil) // ~1036 tokens
+			chat.addUserMessage("Image message", "", img, nil, nil) // ~1036 tokens
 		} else {
 			// Add text-only message
 			longText := strings.Repeat("word ", 50) // ~200 tokens
@@ -612,7 +612,7 @@ func TestSizeManagementWithImages(t *testing.T) {
 			Width:  300,
 			Height: 300,
 		}
-		chat.addUserMessage("Message with data", "", img, nil)
+		chat.addUserMessage("Message with data", "", img, nil, nil)
 		chat.addBotMessage("Response", 50)
 	}
 
@@ -656,7 +656,7 @@ func TestMixedContentHandling(t *testing.T) {
 		Width:  800,
 		Height: 600,
 	}
-	chat.addUserMessage("Check this image", "", img, nil)
+	chat.addUserMessage("Check this image", "", img, nil, nil)
 	chat.addBotMessage("I can see the image", 100)
 
 	// Add image-only message
@@ -708,7 +708,7 @@ func TestAddUserMessageWithAudio(t *testing.T) {
 		Duration: 30, // 30 seconds
 	}
 
-	chat.addUserMessage("Listen to this", "", nil, audio)
+	chat.addUserMessage("Listen to this", "", nil, audio, nil)
 
 	require.Equal(t, 2, len(chat.messages))
 	require.Equal(t, llms.ChatMessageTypeHuman, chat.messages[1].Role)
@@ -803,7 +803,7 @@ func TestCalculateAudioTokens(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			audio := &Audio{Duration: tt.duration}
-			tokens := getMessageLen("", 4000, "", nil, audio)
+			tokens := getMessageLen("", 4000, "", nil, audio, nil)
 			require.Equal(t, tt.expected, tokens)
 		})
 	}
@@ -824,7 +824,7 @@ func TestCleanDataRemovesAudio(t *testing.T) {
 		Caption:  "Large audio file",
 		Duration: 60,
 	}
-	chat.addUserMessage("Check this audio", "", nil, largeAudio)
+	chat.addUserMessage("Check this audio", "", nil, largeAudio, nil)
 
 	initialMsgCount := len(chat.messages)
 	initialSize := chat.curSize
@@ -879,7 +879,7 @@ func TestContextLimitWithAudio(t *testing.T) {
 		Data:     []byte("audio data"),
 		Duration: 100, // 100 * 32 = 3200 tokens
 	}
-	chat.addUserMessage("Large audio", "", nil, largeAudio)
+	chat.addUserMessage("Large audio", "", nil, largeAudio, nil)
 
 	// Should have triggered history cleanup
 	require.Less(t, len(chat.messages), 4) // Should have removed some messages
@@ -900,7 +900,7 @@ func TestMixedContentWithAudio(t *testing.T) {
 		Duration: 20,
 	}
 
-	chat.addUserMessage("Mixed content", "", image, audio)
+	chat.addUserMessage("Mixed content", "", image, audio, nil)
 
 	require.Equal(t, 2, len(chat.messages))
 	require.Equal(t, 3, len(chat.messages[1].Parts)) // image + audio + text
@@ -930,7 +930,7 @@ func TestAudioTokenCalculationIntegration(t *testing.T) {
 				audio = &Audio{Duration: tc.duration}
 			}
 
-			tokens := getMessageLen(tc.text, 4000, "", nil, audio)
+			tokens := getMessageLen(tc.text, 4000, "", nil, audio, nil)
 			require.Equal(t, tc.expected, tokens)
 		})
 	}
@@ -946,7 +946,7 @@ func TestSizeManagementWithAudio(t *testing.T) {
 			Data:     make([]byte, 100), // Each audio is 100 bytes
 			Duration: 10,
 		}
-		chat.addUserMessage(fmt.Sprintf("Audio %d", i), "", nil, audio)
+		chat.addUserMessage(fmt.Sprintf("Audio %d", i), "", nil, audio, nil)
 		chat.addBotMessage(fmt.Sprintf("Response %d", i), 4000)
 	}
 
@@ -978,7 +978,7 @@ func TestRemoveLastMessageWithAudio(t *testing.T) {
 		Data:     []byte("test audio data"),
 		Duration: 25,
 	}
-	chat.addUserMessage("Audio message", "", nil, audio)
+	chat.addUserMessage("Audio message", "", nil, audio, nil)
 
 	initialCtx := chat.curCtx
 	initialSize := chat.curSize
@@ -1008,7 +1008,7 @@ func TestAudioWithImageCombination(t *testing.T) {
 		Duration: 15,
 	}
 
-	chat.addUserMessage("Combined media", "", image, audio)
+	chat.addUserMessage("Combined media", "", image, audio, nil)
 
 	require.Equal(t, 2, len(chat.messages))
 	require.Equal(t, 3, len(chat.messages[1].Parts)) // image + audio + text
@@ -1020,4 +1020,245 @@ func TestAudioWithImageCombination(t *testing.T) {
 	// Verify size calculation includes both media types
 	expectedSize := len("image data") + len("audio data") + len("Combined media")
 	require.Equal(t, expectedSize, chat.msgSizes[1])
+}
+
+func TestCalculateVideoTokens(t *testing.T) {
+	// Test small video (both dimensions <= 384)
+	tokens := calculateVideoTokens(300, 200, 10)
+	require.Equal(t, 10*98, tokens) // 10 seconds * 98 tokens/second
+
+	// Test large video (one dimension > 384)
+	tokens = calculateVideoTokens(500, 300, 5)
+	require.Equal(t, 5*290, tokens) // 5 seconds * 290 tokens/second
+
+	// Test large video (both dimensions > 384)
+	tokens = calculateVideoTokens(1920, 1080, 3)
+	require.Equal(t, 3*290, tokens) // 3 seconds * 290 tokens/second
+
+	// Test edge case (exactly 384x384)
+	tokens = calculateVideoTokens(384, 384, 2)
+	require.Equal(t, 2*98, tokens) // 2 seconds * 98 tokens/second
+
+	// Test zero duration
+	tokens = calculateVideoTokens(1000, 1000, 0)
+	require.Equal(t, 0, tokens)
+}
+
+func TestGetMessageLenWithVideo(t *testing.T) {
+	// Test small video
+	video := &Video{Width: 300, Height: 200, Duration: 5, Caption: "Small video"}
+	length := getMessageLen("Hello", 1000, "", nil, nil, video)
+	expectedTokens := 5 + (5 * 98) + len("Small video") // text + video tokens + caption
+	require.Equal(t, expectedTokens, length)
+
+	// Test large video
+	video = &Video{Width: 1920, Height: 1080, Duration: 3, Caption: "Large video"}
+	length = getMessageLen("Test", 1000, "", nil, nil, video)
+	expectedTokens = 4 + (3 * 290) + len("Large video") // text + video tokens + caption
+	require.Equal(t, expectedTokens, length)
+
+	// Test video without caption
+	video = &Video{Width: 500, Height: 400, Duration: 2}
+	length = getMessageLen("", 1000, "", nil, nil, video)
+	require.Equal(t, 2*290, length) // Only video tokens
+}
+
+func TestAddUserVideoMessage(t *testing.T) {
+	chat := setupAiChat(t)
+
+	video := &Video{
+		Data:     []byte("fake video data"),
+		Caption:  "Test video",
+		Width:    640,
+		Height:   480,
+		Duration: 10,
+	}
+
+	chat.addUserVideoMessage(video)
+
+	require.Equal(t, 2, len(chat.messages))
+	require.Equal(t, llms.ChatMessageTypeHuman, chat.messages[1].Role)
+	require.Equal(t, 2, len(chat.messages[1].Parts)) // video + caption
+
+	// Check video part
+	videoPart, ok := chat.messages[1].Parts[0].(llms.BinaryContent)
+	require.True(t, ok)
+	require.Equal(t, "video/mp4", videoPart.MIMEType)
+	require.Equal(t, video.Data, videoPart.Data)
+
+	// Check caption part
+	captionPart, ok := chat.messages[1].Parts[1].(llms.TextContent)
+	require.True(t, ok)
+	require.Equal(t, "Test video", captionPart.Text)
+}
+
+func TestAddUserMessageWithVideo(t *testing.T) {
+	chat := setupAiChat(t)
+
+	video := &Video{
+		Data:     []byte("video data"),
+		Caption:  "Video caption",
+		Width:    800,
+		Height:   600,
+		Duration: 15,
+	}
+
+	initialCtx := chat.curCtx
+	initialSize := chat.curSize
+
+	chat.addUserMessage("Check this video", "", nil, nil, video)
+
+	require.Equal(t, 2, chat.getMessageCount())
+	require.Equal(t, "Video caption", chat.getMessageText(1))
+
+	// Verify context length calculation
+	expectedTokens := len("Check this video") + calculateVideoTokens(800, 600, 15) + len("Video caption")
+	require.Equal(t, initialCtx+expectedTokens, chat.curCtx)
+
+	// Verify size calculation
+	expectedSize := len("video data") + len("Video caption") + len("Check this video")
+	require.Equal(t, initialSize+expectedSize, chat.curSize)
+
+	// Check message parts
+	msg := chat.messages[1]
+	require.Equal(t, 3, len(msg.Parts)) // video + caption + text
+}
+
+func TestAddUserMessageVideoOnly(t *testing.T) {
+	chat := setupAiChat(t)
+
+	video := &Video{
+		Data:     []byte("video without caption"),
+		Width:    1920,
+		Height:   1080,
+		Duration: 8,
+	}
+
+	initialCtx := chat.curCtx
+	initialSize := chat.curSize
+
+	chat.addUserVideoMessage(video)
+
+	require.Equal(t, 2, chat.getMessageCount())
+	require.Equal(t, "(uploaded file)", chat.getMessageText(1)) // No text content
+
+	// Verify context length (only video tokens)
+	expectedTokens := calculateVideoTokens(1920, 1080, 8)
+	require.Equal(t, initialCtx+expectedTokens, chat.curCtx)
+
+	// Verify size (only video data)
+	expectedSize := len("video without caption")
+	require.Equal(t, initialSize+expectedSize, chat.curSize)
+}
+
+func TestMixedContentWithVideo(t *testing.T) {
+	chat := setupAiChat(t)
+
+	image := &Image{
+		Data:   []byte("image data"),
+		Width:  400,
+		Height: 300,
+	}
+
+	audio := &Audio{
+		Data:     []byte("audio data"),
+		Duration: 5,
+	}
+
+	video := &Video{
+		Data:     []byte("video data"),
+		Width:    1280,
+		Height:   720,
+		Duration: 12,
+	}
+
+	chat.addUserMessage("Mixed media content", "", image, audio, video)
+
+	require.Equal(t, 2, len(chat.messages))
+	require.Equal(t, 4, len(chat.messages[1].Parts)) // image + audio + video + text
+
+	// Verify token calculation includes all media types
+	expectedTokens := len("Mixed media content") +
+		calculateImageTokens(400, 300) +
+		(5 * 32) +
+		calculateVideoTokens(1280, 720, 12)
+	require.Equal(t, expectedTokens, chat.msgLens[1])
+
+	// Verify size calculation includes all media types
+	expectedSize := len("image data") + len("audio data") + len("video data") + len("Mixed media content")
+	require.Equal(t, expectedSize, chat.msgSizes[1])
+}
+
+func TestVideoTokenCalculationInContext(t *testing.T) {
+	logger := zaptest.NewLogger(t).Sugar()
+
+	tests := []struct {
+		name     string
+		width    int
+		height   int
+		duration int
+		expected int
+	}{
+		{"small video short", 200, 300, 5, 5 * 98},
+		{"small video long", 384, 384, 20, 20 * 98},
+		{"large video short", 500, 400, 3, 3 * 290},
+		{"large video long", 1920, 1080, 10, 10 * 290},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			testChat := newAiChat("Test", 10000, 100000, 10, logger)
+
+			video := &Video{
+				Data:     []byte("test"),
+				Width:    tc.width,
+				Height:   tc.height,
+				Duration: tc.duration,
+			}
+
+			initialCtx := testChat.curCtx
+			testChat.addUserMessage("Test video", "", nil, nil, video)
+
+			expectedTokens := 10 + tc.expected // "Test video" length + video tokens
+			require.Equal(t, initialCtx+expectedTokens, testChat.curCtx)
+		})
+	}
+}
+
+func TestCleanDataWithVideo(t *testing.T) {
+	chat := setupAiChat(t)
+	chat.maxSize = 100 // Small size limit
+
+	// Add several video messages
+	for i := range 3 {
+		video := &Video{
+			Data:     make([]byte, 80), // Each video is 80 bytes
+			Width:    1920,
+			Height:   1080,
+			Duration: 5,
+		}
+		chat.addUserMessage(fmt.Sprintf("Video %d", i), "", nil, nil, video)
+		chat.addBotMessage(fmt.Sprintf("Response %d", i), 4000)
+	}
+
+	// Force cleanup if needed
+	for chat.curSize > chat.maxSize {
+		chat.cleanData()
+	}
+
+	// Check that video data was replaced with text
+	foundReplacedContent := false
+	for _, msg := range chat.messages {
+		if len(msg.Parts) == 1 {
+			if textPart, ok := msg.Parts[0].(llms.TextContent); ok {
+				if strings.Contains(textPart.Text, "(uploaded file)") || strings.Contains(textPart.Text, "Video") {
+					foundReplacedContent = true
+					break
+				}
+			}
+		}
+	}
+
+	require.True(t, foundReplacedContent)
+	require.LessOrEqual(t, chat.curSize, chat.maxSize)
 }

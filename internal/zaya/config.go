@@ -29,8 +29,10 @@ type DefaultConfig struct {
 type Accept struct {
 	Images   bool `koanf:"images"`
 	Audio    bool `koanf:"audio"`
+	Video    bool `koanf:"video"`
 	TextLen  int  `koanf:"text_len"`
 	AudioLen int  `koanf:"audio_len"`
+	VideoLen int  `koanf:"video_len"`
 }
 
 type AiConfig struct {

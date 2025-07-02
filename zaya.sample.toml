@@ -29,5 +29,7 @@ stop     = [ ]
 [ai.accept]
 images = false
 audio  = false
+video  = false
 text_len  = 1000
 audio_len = 60
+video_len = 30

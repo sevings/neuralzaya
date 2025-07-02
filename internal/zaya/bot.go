@@ -93,6 +93,10 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 	if bot.acc.Audio {
 		bot.bot.Handle(tele.OnVoice, bot.readMessage)
 	}
+	if bot.acc.Video {
+		bot.bot.Handle(tele.OnVideo, bot.readMessage)
+		bot.bot.Handle(tele.OnVideoNote, bot.readMessage)
+	}
 
 	return bot, true
 }
@@ -128,6 +132,7 @@ func (bot *Bot) logMessage(c tele.Context, beginTime int64, err error) {
 		"len", len(c.Text()),
 		"has_photo", c.Message().Photo != nil,
 		"has_voice", c.Message().Voice != nil,
+		"has_video", c.Message().Video != nil || c.Message().VideoNote != nil,
 		"dur", fmt.Sprintf("%.2f", duration),
 		"err", err)
 }
@@ -344,7 +349,11 @@ func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool) {
 		return false, false
 	}
 
-	if len(c.Text()) == 0 && c.Message().Photo == nil && c.Message().Voice == nil {
+	if len(c.Text()) == 0 &&
+		c.Message().Photo == nil &&
+		c.Message().Voice == nil &&
+		c.Message().Video == nil &&
+		c.Message().VideoNote == nil {
 		return false, false
 	}
 
@@ -371,7 +380,11 @@ func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool) {
 		return true, false
 	}
 
-	if c.Message().Photo == nil && c.Message().Voice == nil && rand.Intn(100) < cfg.Freq {
+	if c.Message().Photo == nil &&
+		c.Message().Voice == nil &&
+		c.Message().Video == nil &&
+		c.Message().VideoNote == nil &&
+		rand.Intn(100) < cfg.Freq {
 		return true, cfg.Freq == 100
 	}
 
@@ -429,6 +442,59 @@ func (bot *Bot) loadVoice(msg *tele.Message) (*Audio, bool) {
 	}, true
 }
 
+func (bot *Bot) loadVideoNote(msg *tele.Message) (*Video, bool) {
+	if !bot.acc.Video || msg.VideoNote == nil || msg.VideoNote.Duration > bot.acc.VideoLen {
+		return nil, false
+	}
+
+	rc, err := bot.bot.File(&msg.VideoNote.File)
+	if err != nil {
+		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+		return nil, false
+	}
+	defer rc.Close()
+
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+		return nil, false
+	}
+
+	return &Video{
+		Data:     data,
+		Duration: msg.VideoNote.Duration,
+		Width:    384,
+		Height:   384,
+	}, true
+}
+
+func (bot *Bot) loadVideo(msg *tele.Message) (*Video, bool) {
+	if !bot.acc.Video || msg.Video == nil || msg.Video.Duration > bot.acc.VideoLen {
+		return nil, false
+	}
+
+	rc, err := bot.bot.File(&msg.Video.File)
+	if err != nil {
+		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+		return nil, false
+	}
+	defer rc.Close()
+
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
+		return nil, false
+	}
+
+	return &Video{
+		Data:     data,
+		Caption:  msg.Video.Caption,
+		Duration: msg.Video.Duration,
+		Width:    msg.Video.Width,
+		Height:   msg.Video.Height,
+	}, true
+}
+
 func (bot *Bot) loadPage(msg *tele.Message) (string, bool) {
 	for _, e := range msg.Entities {
 		if e.Type == tele.EntityURL {
@@ -469,6 +535,14 @@ func (bot *Bot) getAiReply(msg *tele.Message, userMsg string, isReply bool) (AIR
 
 	if page, ok := bot.loadPage(msg); ok {
 		req.Document = page
+	}
+
+	if video, ok := bot.loadVideo(msg); ok {
+		req.Video = video
+	}
+
+	if videoNote, ok := bot.loadVideoNote(msg); ok {
+		req.Video = videoNote
 	}
 
 	return bot.ai.GetReply(req)
