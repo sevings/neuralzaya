@@ -578,7 +578,9 @@ func (ai *AI) GetReply(req AIRequest) (AIReply, bool) {
 	duration := float64(endTime-beginTime) / 1000000
 	ai.log.Infow("ai message",
 		"chat_id", req.ChatID,
-		"size", reply.ReplyLen,
+		"in_len", chat.msgLens[len(chat.msgLens)-2],
+		"in_size", chat.msgSizes[len(chat.msgSizes)-2],
+		"len", reply.ReplyLen,
 		"at_end", reply.AtEnd,
 		"dur", fmt.Sprintf("%.2f", duration))
 
