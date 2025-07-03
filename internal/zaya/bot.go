@@ -350,9 +350,9 @@ func (bot *Bot) setMaxHistory(c tele.Context) error {
 	return c.Reply("History limit changed.")
 }
 
-func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool) {
+func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool, bool) {
 	if len(c.Text()) > 0 && c.Text()[0] == '/' {
-		return false, false
+		return false, false, false
 	}
 
 	if len(c.Text()) == 0 &&
@@ -360,41 +360,44 @@ func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool) {
 		c.Message().Voice == nil &&
 		c.Message().Video == nil &&
 		c.Message().VideoNote == nil {
-		return false, false
+		return false, false, false
 	}
 
 	if c.Chat().Type == tele.ChatPrivate {
-		return true, true
+		return true, true, false
 	}
 
 	if len(c.Text()) > bot.acc.TextLen {
-		return false, false
+		return false, false, false
 	}
 
 	if c.Message().ReplyTo != nil &&
 		c.Message().ReplyTo.Sender.ID == bot.bot.Me.ID {
-		return true, true
+		return true, true, false
 	}
 
 	mention := "@" + bot.bot.Me.Username
 	if strings.Contains(c.Text(), mention) {
-		return true, false
+		return true, false, true
 	}
 
 	cfg := bot.db.LoadChatConfig(c.Chat().ID)
 	if strings.Contains(strings.ToLower(c.Text()), cfg.Nickname) {
-		return true, false
+		return true, false, true
 	}
 
-	if c.Message().Photo == nil &&
-		c.Message().Voice == nil &&
-		c.Message().Video == nil &&
-		c.Message().VideoNote == nil &&
-		rand.Intn(100) < cfg.Freq {
-		return true, cfg.Freq == 100
+	if c.Message().Photo != nil ||
+		c.Message().Voice != nil ||
+		c.Message().Video != nil ||
+		c.Message().VideoNote != nil {
+		return false, false, false
 	}
 
-	return false, false
+	if rand.Intn(100) < cfg.Freq {
+		return true, cfg.Freq == 100, false
+	}
+
+	return false, false, false
 }
 
 func (bot *Bot) loadPhoto(msg *tele.Message) (*Image, bool) {
@@ -808,27 +811,30 @@ func (bot *Bot) welcome(c tele.Context) error {
 func (bot *Bot) readMessage(c tele.Context) error {
 	beginTime := time.Now().UnixNano()
 
-	shouldReply, forceKeepHistory := bot.shouldReplyTo(c)
+	shouldReply, forceKeepHistory, mentioned := bot.shouldReplyTo(c)
 	if !shouldReply {
 		return nil
 	}
 
-	mention := "@" + bot.bot.Me.Username
 	msg := c.Message()
 	text := c.Text()
+	text = strings.ReplaceAll(text, "@"+bot.bot.Me.Username, "")
+	text = strings.TrimSpace(text)
+
 	if msg.ReplyTo != nil &&
+		mentioned &&
 		(msg.ReplyTo.Text != "" ||
 			msg.ReplyTo.Photo != nil ||
 			msg.ReplyTo.Voice != nil ||
 			msg.ReplyTo.Video != nil ||
-			msg.ReplyTo.VideoNote != nil) &&
-		msg.Sender.ID != bot.bot.Me.ID &&
-		strings.Contains(text, mention) {
+			msg.ReplyTo.VideoNote != nil) {
+		if text == "" {
+			text = msg.ReplyTo.Text
+		} else if msg.ReplyTo.Text != "" {
+			text = "> " + strings.ReplaceAll(msg.ReplyTo.Text, "\n", "\n> ") + "\n\n" + text
+		}
 		msg = msg.ReplyTo
-		text = msg.Text
 	}
-	text = strings.ReplaceAll(text, mention, "")
-	text = strings.TrimSpace(text)
 
 	if !bot.ai.IsChatStarted(c.Chat().ID) {
 		bot.startChat(c)
