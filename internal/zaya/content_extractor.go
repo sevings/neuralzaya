@@ -19,8 +19,10 @@ import (
 type ContentExtractor struct {
 	minContentLength int
 	maxContentLength int
+	maxDownloadSize  int64
 	removeElements   []string
 	contentSelectors []string
+	httpClient       *http.Client
 }
 
 // NewContentExtractor creates a new content extractor with default settings
@@ -28,6 +30,7 @@ func NewContentExtractor() *ContentExtractor {
 	return &ContentExtractor{
 		minContentLength: 100,
 		maxContentLength: 100000,
+		maxDownloadSize:  10 * 1024 * 1024, // 10MB default
 		removeElements: []string{
 			"script", "style", "nav", "header", "footer", "aside",
 			"advertisement", "ads", "sidebar", "menu", "social",
@@ -47,6 +50,7 @@ func NewContentExtractor() *ContentExtractor {
 			"#content",
 			"#main-content",
 		},
+		httpClient: &http.Client{},
 	}
 }
 
@@ -59,7 +63,7 @@ func GetPageText(url string) (string, error) {
 // ExtractContent fetches and extracts the main content from a web page
 func (ce *ContentExtractor) ExtractContent(url string) (string, error) {
 	// Fetch the page
-	resp, err := http.Get(url)
+	resp, err := ce.httpClient.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch URL: %w", err)
 	}
@@ -67,6 +71,17 @@ func (ce *ContentExtractor) ExtractContent(url string) (string, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("unexpected status code: %d %s", resp.StatusCode, resp.Status)
+	}
+
+	// Check if content type is HTML
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(strings.ToLower(contentType), "text/html") {
+		return "", fmt.Errorf("content type is not HTML: %s", contentType)
+	}
+
+	// Check content length if provided
+	if resp.ContentLength > 0 && resp.ContentLength > ce.maxDownloadSize {
+		return "", fmt.Errorf("content too large: %d bytes exceeds limit of %d bytes", resp.ContentLength, ce.maxDownloadSize)
 	}
 
 	// Handle encoding detection and conversion
@@ -103,10 +118,18 @@ func (ce *ContentExtractor) ExtractContent(url string) (string, error) {
 
 // handleEncoding detects and converts page encoding to UTF-8
 func (ce *ContentExtractor) handleEncoding(resp *http.Response) (string, error) {
+	// Limit the download size
+	limitedReader := io.LimitReader(resp.Body, ce.maxDownloadSize)
+
 	// Read the response body
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return "", err
+	}
+
+	// Check if we hit the download limit
+	if int64(len(bodyBytes)) >= ce.maxDownloadSize {
+		return "", fmt.Errorf("download size exceeded limit of %d bytes", ce.maxDownloadSize)
 	}
 
 	// Try to detect encoding from Content-Type header
@@ -291,6 +314,11 @@ func (ce *ContentExtractor) AddContentSelector(selector string) {
 // AddRemoveElement adds an element/selector to remove during extraction
 func (ce *ContentExtractor) AddRemoveElement(selector string) {
 	ce.removeElements = append(ce.removeElements, selector)
+}
+
+// SetMaxDownloadSize sets the maximum download size limit in bytes
+func (ce *ContentExtractor) SetMaxDownloadSize(size int64) {
+	ce.maxDownloadSize = size
 }
 
 // UTF16OffsetToUTF8 converts UTF-16 offset and length to UTF-8 byte positions

@@ -19,9 +19,11 @@ type Bot struct {
 	bot *tele.Bot
 	ai  *AI
 	db  *DB
+	ce  *ContentExtractor
 	wlc string
 	adm int64
 	acc Accept
+	mxs int64
 	log *zap.SugaredLogger
 
 	continueMenu *tele.ReplyMarkup
@@ -36,12 +38,16 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 	bot := &Bot{
 		ai:        ai,
 		db:        db,
+		ce:        NewContentExtractor(),
 		wlc:       cfg.Welcome,
 		adm:       cfg.AdminID,
 		acc:       cfg.Ai.Accept,
+		mxs:       int64(cfg.Ai.MaxSize),
 		log:       zap.L().Named("bot").Sugar(),
 		startedAt: time.Now(),
 	}
+
+	bot.ce.SetMaxDownloadSize(bot.mxs)
 
 	pref := tele.Settings{
 		Token:   cfg.TgToken,
@@ -396,6 +402,10 @@ func (bot *Bot) loadPhoto(msg *tele.Message) (*Image, bool) {
 		return nil, false
 	}
 
+	if msg.Photo.FileSize > bot.mxs {
+		return nil, false
+	}
+
 	rc, err := bot.bot.File(&msg.Photo.File)
 	if err != nil {
 		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
@@ -418,7 +428,11 @@ func (bot *Bot) loadPhoto(msg *tele.Message) (*Image, bool) {
 }
 
 func (bot *Bot) loadVoice(msg *tele.Message) (*Audio, bool) {
-	if !bot.acc.Audio || msg.Voice == nil || msg.Voice.Duration > bot.acc.AudioLen {
+	if !bot.acc.Audio || msg.Voice == nil {
+		return nil, false
+	}
+
+	if msg.Voice.FileSize > bot.mxs || msg.Voice.Duration > bot.acc.AudioLen {
 		return nil, false
 	}
 
@@ -443,7 +457,11 @@ func (bot *Bot) loadVoice(msg *tele.Message) (*Audio, bool) {
 }
 
 func (bot *Bot) loadVideoNote(msg *tele.Message) (*Video, bool) {
-	if !bot.acc.Video || msg.VideoNote == nil || msg.VideoNote.Duration > bot.acc.VideoLen {
+	if !bot.acc.Video || msg.VideoNote == nil {
+		return nil, false
+	}
+
+	if msg.VideoNote.FileSize > bot.mxs || msg.VideoNote.Duration > bot.acc.VideoLen {
 		return nil, false
 	}
 
@@ -469,7 +487,11 @@ func (bot *Bot) loadVideoNote(msg *tele.Message) (*Video, bool) {
 }
 
 func (bot *Bot) loadVideo(msg *tele.Message) (*Video, bool) {
-	if !bot.acc.Video || msg.Video == nil || msg.Video.Duration > bot.acc.VideoLen {
+	if !bot.acc.Video || msg.Video == nil {
+		return nil, false
+	}
+
+	if msg.Video.FileSize > bot.mxs || msg.Video.Duration > bot.acc.VideoLen {
 		return nil, false
 	}
 
@@ -505,7 +527,7 @@ func (bot *Bot) loadPage(msg *tele.Message) (string, bool) {
 			}
 
 			bot.log.Infow("loading page", "url", url)
-			page, err := GetPageText(url)
+			page, err := bot.ce.ExtractContent(url)
 			if err != nil {
 				bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
 				return "", false
