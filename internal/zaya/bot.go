@@ -5,6 +5,7 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -617,6 +618,52 @@ const (
 	FlagBold
 )
 
+func (bot *Bot) prepareMessageTextWithActions(s string) ([]string, *tele.ReplyMarkup) {
+	var keyboard *tele.ReplyMarkup
+
+	re := regexp.MustCompile(`<zaya_action>(.+?)</zaya_action>`)
+	matches := re.FindAllStringSubmatch(s, -1)
+	if len(matches) == 0 {
+		return prepareMessageText(s), nil
+	}
+
+	var actions []struct {
+		description string
+		fullMatch   string
+	}
+
+	for _, match := range matches {
+		if len(match) >= 2 {
+			actions = append(actions, struct {
+				description string
+				fullMatch   string
+			}{
+				description: strings.TrimSpace(match[1]),
+				fullMatch:   match[0],
+			})
+		}
+	}
+
+	cleanedText := s
+	for i, action := range actions {
+		replacement := fmt.Sprintf("%d. %s", i+1, action.description)
+		cleanedText = strings.ReplaceAll(cleanedText, action.fullMatch, replacement)
+	}
+
+	if len(actions) > 0 {
+		keyboard = &tele.ReplyMarkup{}
+		var buttons []tele.Btn
+		for i, action := range actions {
+			btn := keyboard.QueryChat(fmt.Sprintf("%d", i+1), action.description)
+			buttons = append(buttons, btn)
+		}
+		keyboard.Inline(keyboard.Row(buttons...))
+	}
+
+	chunks := prepareMessageText(cleanedText)
+	return chunks, keyboard
+}
+
 func prepareMessageText(s string) []string {
 	const maxChunkSize = 4000
 
@@ -763,7 +810,7 @@ func (bot *Bot) sendReply(msg *tele.Message, reply AIReply) error {
 	bot.aiMsgLength.Add(int64(reply.ReplyLen))
 	bot.aiHstLength.Add(int64(reply.CtxLen))
 
-	escapedChunks := prepareMessageText(reply.Text)
+	escapedChunks, actionKeyboard := bot.prepareMessageTextWithActions(reply.Text)
 	prevMsg := msg
 
 	var err error
@@ -772,18 +819,34 @@ func (bot *Bot) sendReply(msg *tele.Message, reply AIReply) error {
 		curMsg := prevMsg
 
 		if !isLast || reply.AtEnd {
-			curMsg, err = bot.bot.Reply(prevMsg, chunk, tele.ModeMarkdownV2)
+			if isLast && actionKeyboard != nil {
+				curMsg, err = bot.bot.Reply(prevMsg, chunk, actionKeyboard, tele.ModeMarkdownV2)
+			} else {
+				curMsg, err = bot.bot.Reply(prevMsg, chunk, tele.ModeMarkdownV2)
+			}
 		} else {
-			curMsg, err = bot.bot.Reply(prevMsg, chunk, bot.continueMenu, tele.ModeMarkdownV2)
+			if actionKeyboard != nil {
+				curMsg, err = bot.bot.Reply(prevMsg, chunk, actionKeyboard, bot.continueMenu, tele.ModeMarkdownV2)
+			} else {
+				curMsg, err = bot.bot.Reply(prevMsg, chunk, bot.continueMenu, tele.ModeMarkdownV2)
+			}
 		}
 
 		if err != nil {
 			bot.log.Warnw("error", "err", err, "text", chunk)
 
 			if !isLast || reply.AtEnd {
-				curMsg, err = bot.bot.Reply(prevMsg, chunk, tele.ModeDefault)
+				if isLast && actionKeyboard != nil {
+					curMsg, err = bot.bot.Reply(prevMsg, chunk, actionKeyboard, tele.ModeDefault)
+				} else {
+					curMsg, err = bot.bot.Reply(prevMsg, chunk, tele.ModeDefault)
+				}
 			} else {
-				curMsg, err = bot.bot.Reply(prevMsg, chunk, bot.continueMenu, tele.ModeDefault)
+				if actionKeyboard != nil {
+					curMsg, err = bot.bot.Reply(prevMsg, chunk, actionKeyboard, bot.continueMenu, tele.ModeDefault)
+				} else {
+					curMsg, err = bot.bot.Reply(prevMsg, chunk, bot.continueMenu, tele.ModeDefault)
+				}
 			}
 		}
 
