@@ -1,10 +1,11 @@
 package main
 
 import (
-	"go.uber.org/zap"
 	"neuralzaya/internal/zaya"
 	"os"
 	"os/signal"
+
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -38,7 +39,7 @@ func main() {
 		Nickname: cfg.DefaultCfg.Nickname,
 		Prompt:   cfg.DefaultCfg.Prompt,
 	}
-	db, ok := zaya.LoadDatabase(cfg.DBPath, defaultChatConfig)
+	db, ok := zaya.LoadDatabase(cfg.DBPath, defaultChatConfig, cfg.Ai.MaxHst)
 	if !ok {
 		logger.Panic("can't load database")
 	}

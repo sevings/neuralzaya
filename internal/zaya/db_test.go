@@ -1,9 +1,10 @@
 package zaya
 
 import (
-	"github.com/stretchr/testify/require"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 var defaultCfg = ChatConfig{
@@ -23,7 +24,7 @@ func setupTestDB(t *testing.T) *DB {
 	_ = tmpFile.Close()
 	t.Cleanup(func() { _ = os.Remove(path) })
 
-	db, success := LoadDatabase(path, defaultCfg)
+	db, success := LoadDatabase(path, defaultCfg, 50)
 	require.True(t, success)
 	require.NotNil(t, db)
 

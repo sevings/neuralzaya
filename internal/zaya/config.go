@@ -43,6 +43,7 @@ type AiConfig struct {
 	AltModel string `koanf:"alt_model"`
 	NCtx     int    `koanf:"n_ctx"`
 	MaxSize  int    `koanf:"max_size"`
+	MaxHst   int    `koanf:"max_hst"`
 	Temp     float64
 	TopK     int           `koanf:"tok_k"`
 	RepPen   float64       `koanf:"rep_pen"`

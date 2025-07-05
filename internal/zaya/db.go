@@ -2,19 +2,22 @@ package zaya
 
 import (
 	"database/sql"
+	"time"
+
 	"github.com/glebarez/sqlite"
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
-	"time"
 )
 
 type DB struct {
 	db  *gorm.DB
 	log *zap.SugaredLogger
 	cfg ChatConfig
+
+	maxHst int
 }
 
 type ChatConfig struct {
@@ -49,7 +52,7 @@ type DialogMessage struct {
 	Text   string
 }
 
-func LoadDatabase(path string, defaultCfg ChatConfig) (*DB, bool) {
+func LoadDatabase(path string, defaultCfg ChatConfig, maxHst int) (*DB, bool) {
 	log := zap.L().Named("db").Sugar()
 	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
 	if err != nil {
@@ -67,6 +70,8 @@ func LoadDatabase(path string, defaultCfg ChatConfig) (*DB, bool) {
 		db:  db,
 		log: log,
 		cfg: defaultCfg,
+
+		maxHst: maxHst,
 	}, true
 }
 
@@ -172,10 +177,10 @@ func (db *DB) SetPrompt(chatID int64, prompt string) {
 }
 
 func (db *DB) SetMaxHistory(chatID int64, maxHistory int) {
+	maxHistory = db.clampMaxHistory(maxHistory)
+
 	tx := db.db.Model(&ChatConfig{}).Where(chatID).
 		Updates(&ChatConfig{MaxHistory: maxHistory})
-
-	maxHistory = clampMaxHistory(maxHistory)
 
 	if tx.RowsAffected < 1 {
 		cfg := db.cfg
@@ -185,11 +190,11 @@ func (db *DB) SetMaxHistory(chatID int64, maxHistory int) {
 	}
 }
 
-func clampMaxHistory(maxHistory int) int {
+func (db *DB) clampMaxHistory(maxHistory int) int {
 	if maxHistory == 0 {
-		maxHistory = 50
-	} else if maxHistory > 50 {
-		maxHistory = 50
+		maxHistory = db.maxHst
+	} else if maxHistory > db.maxHst {
+		maxHistory = db.maxHst
 	}
 
 	return maxHistory
@@ -224,7 +229,7 @@ func (db *DB) LoadChatRoleNames(chatID int64) []BotRole {
 }
 
 func (db *DB) saveRole(role *BotRole) {
-	role.MaxHistory = clampMaxHistory(role.MaxHistory)
+	role.MaxHistory = db.clampMaxHistory(role.MaxHistory)
 
 	tx := db.db.
 		Model(&BotRole{}).
