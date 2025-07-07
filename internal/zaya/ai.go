@@ -523,6 +523,7 @@ type AIReply struct {
 	Text     string
 	AtEnd    bool
 	CtxLen   int
+	CtxSize  int
 	ReplyLen int
 }
 
@@ -574,9 +575,10 @@ func (ai *AI) GetReply(req AIRequest) (AIReply, bool) {
 
 	choice := resp.Choices[0]
 	reply := AIReply{
-		Text:   choice.Content,
-		AtEnd:  choice.StopReason != "length" && choice.StopReason != "FinishReasonMaxTokens",
-		CtxLen: chat.curCtx,
+		Text:    choice.Content,
+		AtEnd:   choice.StopReason != "length" && choice.StopReason != "FinishReasonMaxTokens",
+		CtxLen:  chat.curCtx,
+		CtxSize: chat.curSize,
 	}
 	if reply.Text == "" {
 		ai.log.Warnw("model reply content is empty", "chat_id", req.ChatID)

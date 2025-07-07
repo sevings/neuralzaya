@@ -30,10 +30,12 @@ type Bot struct {
 
 	continueMenu *tele.ReplyMarkup
 
-	startedAt   time.Time
-	aiMSgCount  atomic.Int64
-	aiMsgLength atomic.Int64
-	aiHstLength atomic.Int64
+	startedAt    time.Time
+	aiMsgCount   atomic.Int64
+	aiMsgLength  atomic.Int64
+	aiHstLength  atomic.Int64
+	aiCtxSize    atomic.Int64
+	aiMediaCount atomic.Int64
 }
 
 func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
@@ -564,15 +566,18 @@ func (bot *Bot) getAiReply(msgs []*tele.Message, userMsgs []string, isReply bool
 	req.Messages = userMsgs
 
 	var size int64
+	var mediaCount int64
 	for _, msg := range msgs {
 		if img, ok := bot.loadPhoto(msg); ok {
 			req.Images = append(req.Images, img)
 			size += int64(len(img.Data))
+			mediaCount++
 		}
 
 		if audio, ok := bot.loadVoice(msg); ok {
 			req.Audios = append(req.Audios, audio)
 			size += int64(len(audio.Data))
+			mediaCount++
 		}
 
 		if pages, ok := bot.loadPages(msg); ok {
@@ -580,16 +585,19 @@ func (bot *Bot) getAiReply(msgs []*tele.Message, userMsgs []string, isReply bool
 			for _, page := range pages {
 				size += int64(len(page))
 			}
+			mediaCount++
 		}
 
 		if video, ok := bot.loadVideo(msg); ok {
 			req.Videos = append(req.Videos, video)
 			size += int64(len(video.Data))
+			mediaCount++
 		}
 
 		if videoNote, ok := bot.loadVideoNote(msg); ok {
 			req.Videos = append(req.Videos, videoNote)
 			size += int64(len(videoNote.Data))
+			mediaCount++
 		}
 
 		if size > bot.mxs {
@@ -597,6 +605,8 @@ func (bot *Bot) getAiReply(msgs []*tele.Message, userMsgs []string, isReply bool
 			return AIReply{}, false
 		}
 	}
+
+	bot.aiMediaCount.Add(mediaCount)
 
 	return bot.ai.GetReply(req)
 }
@@ -834,9 +844,10 @@ func (bot *Bot) sendReply(msg *tele.Message, reply AIReply) error {
 		return nil
 	}
 
-	bot.aiMSgCount.Add(1)
+	bot.aiMsgCount.Add(1)
 	bot.aiMsgLength.Add(int64(reply.ReplyLen))
 	bot.aiHstLength.Add(int64(reply.CtxLen))
+	bot.aiCtxSize.Add(int64(reply.CtxSize))
 
 	escapedChunks, actionKeyboard := bot.prepareMessageTextWithActions(reply.Text)
 	prevMsg := msg
@@ -1165,11 +1176,17 @@ func (bot *Bot) getBotStat(c tele.Context) error {
 	uptimeDays := time.Since(bot.startedAt).Hours() / 24
 	addF64("Uptime (days)", uptimeDays)
 
-	totalMsgCnt := bot.aiMSgCount.Load()
+	totalMsgCnt := bot.aiMsgCount.Load()
 	addI64("Total count of output messages", totalMsgCnt)
 
 	totalMsgLen := bot.aiMsgLength.Load()
 	addI64("Total length of output messages (KiB)", totalMsgLen/1024)
+
+	totalCtxSize := bot.aiCtxSize.Load()
+	addI64("Total size of input context (KiB)", totalCtxSize/1024)
+
+	totalMediaCount := bot.aiMediaCount.Load()
+	addI64("Total count of media files sent", totalMediaCount)
 
 	if uptimeDays > 0.1 {
 		avgMsgCnt := float64(totalMsgCnt) / uptimeDays
@@ -1180,6 +1197,12 @@ func (bot *Bot) getBotStat(c tele.Context) error {
 
 		avgHstLen := float64(bot.aiHstLength.Load()) / 1024 / uptimeDays
 		addF64("Length of input context per day (KiB)", avgHstLen)
+
+		avgCtxSize := float64(totalCtxSize) / 1024 / uptimeDays
+		addF64("Size of input context per day (KiB)", avgCtxSize)
+
+		avgMediaCount := float64(totalMediaCount) / uptimeDays
+		addF64("Count of media files per day", avgMediaCount)
 	}
 
 	groupChatCnt := bot.db.GetChatCount()
