@@ -521,7 +521,9 @@ func (bot *Bot) loadVideo(msg *tele.Message) (Video, bool) {
 	}, true
 }
 
-func (bot *Bot) loadPage(msg *tele.Message) (string, bool) {
+func (bot *Bot) loadPages(msg *tele.Message) ([]string, bool) {
+	var pages []string
+
 	for _, e := range msg.Entities {
 		if e.Type == tele.EntityURL {
 			url := e.URL
@@ -534,14 +536,14 @@ func (bot *Bot) loadPage(msg *tele.Message) (string, bool) {
 			page, err := bot.ce.ExtractContent(url)
 			if err != nil {
 				bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-				return "", false
+				continue
 			}
 
-			return page, true
+			pages = append(pages, page)
 		}
 	}
 
-	return "", false
+	return pages, len(pages) > 0
 }
 
 func (bot *Bot) getAiReply(msg *tele.Message, userMsg string, isReply bool) (AIReply, bool) {
@@ -555,8 +557,8 @@ func (bot *Bot) getAiReply(msg *tele.Message, userMsg string, isReply bool) (AIR
 		req.Audios = append(req.Audios, audio)
 	}
 
-	if page, ok := bot.loadPage(msg); ok {
-		req.Docs = append(req.Docs, page)
+	if pages, ok := bot.loadPages(msg); ok {
+		req.Docs = pages
 	}
 
 	if video, ok := bot.loadVideo(msg); ok {
