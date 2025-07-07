@@ -21,6 +21,7 @@ type Bot struct {
 	ai  *AI
 	db  *DB
 	ce  *ContentExtractor
+	ac  *AlbumCache
 	wlc string
 	adm int64
 	acc Accept
@@ -48,6 +49,7 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 		startedAt: time.Now(),
 	}
 
+	bot.ac = NewAlbumCache(bot.processMessages)
 	bot.ce.SetMaxDownloadSize(bot.mxs)
 
 	pref := tele.Settings{
@@ -109,6 +111,15 @@ func NewBot(cfg Config, ai *AI, db *DB) (*Bot, bool) {
 }
 
 func (bot *Bot) Start() {
+	// Start periodic cleanup of old album timers
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			bot.ac.CleanOld(30 * time.Second)
+		}
+	}()
+
 	go func() {
 		bot.log.Info("starting bot")
 		bot.bot.Start()
@@ -117,6 +128,7 @@ func (bot *Bot) Start() {
 }
 
 func (bot *Bot) Stop() {
+	bot.ac.CleanAll()
 	bot.bot.Stop()
 }
 
@@ -140,6 +152,7 @@ func (bot *Bot) logMessage(c tele.Context, beginTime int64, err error) {
 		"has_photo", c.Message().Photo != nil,
 		"has_voice", c.Message().Voice != nil,
 		"has_video", c.Message().Video != nil || c.Message().VideoNote != nil,
+		"album_id", c.Message().AlbumID,
 		"dur", fmt.Sprintf("%.2f", duration),
 		"err", err)
 }
@@ -546,34 +559,50 @@ func (bot *Bot) loadPages(msg *tele.Message) ([]string, bool) {
 	return pages, len(pages) > 0
 }
 
-func (bot *Bot) getAiReply(msg *tele.Message, userMsgs []string, isReply bool) (AIReply, bool) {
-	req := NewAIRequest(msg.Chat.ID, isReply)
+func (bot *Bot) getAiReply(msgs []*tele.Message, userMsgs []string, isReply bool) (AIReply, bool) {
+	req := NewAIRequest(msgs[0].Chat.ID, isReply)
 	req.Messages = userMsgs
 
-	if img, ok := bot.loadPhoto(msg); ok {
-		req.Images = append(req.Images, img)
-	}
+	var size int64
+	for _, msg := range msgs {
+		if img, ok := bot.loadPhoto(msg); ok {
+			req.Images = append(req.Images, img)
+			size += int64(len(img.Data))
+		}
 
-	if audio, ok := bot.loadVoice(msg); ok {
-		req.Audios = append(req.Audios, audio)
-	}
+		if audio, ok := bot.loadVoice(msg); ok {
+			req.Audios = append(req.Audios, audio)
+			size += int64(len(audio.Data))
+		}
 
-	if pages, ok := bot.loadPages(msg); ok {
-		req.Docs = pages
-	}
+		if pages, ok := bot.loadPages(msg); ok {
+			req.Docs = append(req.Docs, pages...)
+			for _, page := range pages {
+				size += int64(len(page))
+			}
+		}
 
-	if video, ok := bot.loadVideo(msg); ok {
-		req.Videos = append(req.Videos, video)
-	}
+		if video, ok := bot.loadVideo(msg); ok {
+			req.Videos = append(req.Videos, video)
+			size += int64(len(video.Data))
+		}
 
-	if videoNote, ok := bot.loadVideoNote(msg); ok {
-		req.Videos = append(req.Videos, videoNote)
+		if videoNote, ok := bot.loadVideoNote(msg); ok {
+			req.Videos = append(req.Videos, videoNote)
+			size += int64(len(videoNote.Data))
+		}
+
+		if size > bot.mxs {
+			bot.log.Warnw("request size exceeded", "chat_id", msg.Chat.ID, "size", size)
+			return AIReply{}, false
+		}
 	}
 
 	return bot.ai.GetReply(req)
 }
 
-func (bot *Bot) sendAiReply(msg *tele.Message, userMsgs []string, isReply bool) error {
+func (bot *Bot) sendAiReply(msgs []*tele.Message, userMsgs []string, isReply bool) error {
+	msg := msgs[0]
 	err := bot.bot.Notify(msg.Chat, tele.Typing)
 	if err != nil {
 		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
@@ -586,7 +615,7 @@ func (bot *Bot) sendAiReply(msg *tele.Message, userMsgs []string, isReply bool) 
 	defer ticker.Stop()
 
 	go func() {
-		reply, ok := bot.getAiReply(msg, userMsgs, isReply)
+		reply, ok := bot.getAiReply(msgs, userMsgs, isReply)
 		if ok {
 			ch <- reply
 		} else {
@@ -867,21 +896,39 @@ func (bot *Bot) welcome(c tele.Context) error {
 	}
 
 	bot.startChat(c)
-	return bot.sendAiReply(c.Message(), []string{bot.wlc}, true)
+	return bot.sendAiReply([]*tele.Message{c.Message()}, []string{bot.wlc}, true)
 }
 
 func (bot *Bot) readMessage(c tele.Context) error {
-	beginTime := time.Now().UnixNano()
-
 	shouldReply, forceKeepHistory, mentioned := bot.shouldReplyTo(c)
 	if !shouldReply {
 		return nil
 	}
 
+	if c.Message().AlbumID != "" {
+		bot.log.Infow("album message",
+			"chat_id", c.Chat().ID,
+			"album_id", c.Message().AlbumID)
+		bot.ac.AddMessage(c, forceKeepHistory, mentioned)
+		return nil
+	}
+
+	return bot.processMessages([]tele.Context{c}, forceKeepHistory, mentioned)
+}
+
+func (bot *Bot) processMessages(contexts []tele.Context, forceKeepHistory, mentioned bool) error {
+	if len(contexts) == 0 {
+		return nil
+	}
+
+	beginTime := time.Now().UnixNano()
+
+	c := contexts[0]
 	msg := c.Message()
 	text := c.Text()
 	text = strings.ReplaceAll(text, "@"+bot.bot.Me.Username, "")
 	text = strings.TrimSpace(text)
+
 	msgTexts := []string{}
 	if text != "" {
 		msgTexts = append(msgTexts, text)
@@ -900,11 +947,16 @@ func (bot *Bot) readMessage(c tele.Context) error {
 		msg = msg.ReplyTo
 	}
 
+	msgs := []*tele.Message{msg}
+	for i := 1; i < len(contexts); i++ {
+		msgs = append(msgs, contexts[i].Message())
+	}
+
 	if !bot.ai.IsChatStarted(c.Chat().ID) {
 		bot.startChat(c)
 	}
 
-	err := bot.sendAiReply(msg, msgTexts, forceKeepHistory)
+	err := bot.sendAiReply(msgs, msgTexts, forceKeepHistory)
 
 	bot.logMessage(c, beginTime, err)
 
@@ -920,7 +972,7 @@ func (bot *Bot) continueAiReply(c tele.Context) error {
 	}
 
 	if bot.ai.IsChatStarted(c.Chat().ID) {
-		err = bot.sendAiReply(c.Message(), []string{"continue"}, true)
+		err = bot.sendAiReply([]*tele.Message{c.Message()}, []string{"continue"}, true)
 	}
 
 	bot.logMessage(c, beginTime, err)
