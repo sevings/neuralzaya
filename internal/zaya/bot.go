@@ -401,29 +401,29 @@ func (bot *Bot) shouldReplyTo(c tele.Context) (bool, bool, bool) {
 	return false, false, false
 }
 
-func (bot *Bot) loadPhoto(msg *tele.Message) (*Image, bool) {
+func (bot *Bot) loadPhoto(msg *tele.Message) (Image, bool) {
 	if !bot.acc.Images || msg.Photo == nil {
-		return nil, false
+		return Image{}, false
 	}
 
 	if msg.Photo.FileSize > bot.mxs {
-		return nil, false
+		return Image{}, false
 	}
 
 	rc, err := bot.bot.File(&msg.Photo.File)
 	if err != nil {
 		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-		return nil, false
+		return Image{}, false
 	}
 	defer rc.Close()
 
 	data, err := io.ReadAll(rc)
 	if err != nil {
 		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-		return nil, false
+		return Image{}, false
 	}
 
-	return &Image{
+	return Image{
 		Data:    data,
 		Caption: msg.Photo.Caption,
 		Height:  msg.Photo.Height,
@@ -431,58 +431,58 @@ func (bot *Bot) loadPhoto(msg *tele.Message) (*Image, bool) {
 	}, true
 }
 
-func (bot *Bot) loadVoice(msg *tele.Message) (*Audio, bool) {
+func (bot *Bot) loadVoice(msg *tele.Message) (Audio, bool) {
 	if !bot.acc.Audio || msg.Voice == nil {
-		return nil, false
+		return Audio{}, false
 	}
 
 	if msg.Voice.FileSize > bot.mxs || msg.Voice.Duration > bot.acc.AudioLen {
-		return nil, false
+		return Audio{}, false
 	}
 
 	rc, err := bot.bot.File(&msg.Voice.File)
 	if err != nil {
 		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-		return nil, false
+		return Audio{}, false
 	}
 	defer rc.Close()
 
 	data, err := io.ReadAll(rc)
 	if err != nil {
 		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-		return nil, false
+		return Audio{}, false
 	}
 
-	return &Audio{
+	return Audio{
 		Data:     data,
 		Caption:  msg.Voice.Caption,
 		Duration: msg.Voice.Duration,
 	}, true
 }
 
-func (bot *Bot) loadVideoNote(msg *tele.Message) (*Video, bool) {
+func (bot *Bot) loadVideoNote(msg *tele.Message) (Video, bool) {
 	if !bot.acc.Video || msg.VideoNote == nil {
-		return nil, false
+		return Video{}, false
 	}
 
 	if msg.VideoNote.FileSize > bot.mxs || msg.VideoNote.Duration > bot.acc.VideoLen {
-		return nil, false
+		return Video{}, false
 	}
 
 	rc, err := bot.bot.File(&msg.VideoNote.File)
 	if err != nil {
 		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-		return nil, false
+		return Video{}, false
 	}
 	defer rc.Close()
 
 	data, err := io.ReadAll(rc)
 	if err != nil {
 		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-		return nil, false
+		return Video{}, false
 	}
 
-	return &Video{
+	return Video{
 		Data:     data,
 		Duration: msg.VideoNote.Duration,
 		Width:    384,
@@ -490,29 +490,29 @@ func (bot *Bot) loadVideoNote(msg *tele.Message) (*Video, bool) {
 	}, true
 }
 
-func (bot *Bot) loadVideo(msg *tele.Message) (*Video, bool) {
+func (bot *Bot) loadVideo(msg *tele.Message) (Video, bool) {
 	if !bot.acc.Video || msg.Video == nil {
-		return nil, false
+		return Video{}, false
 	}
 
 	if msg.Video.FileSize > bot.mxs || msg.Video.Duration > bot.acc.VideoLen {
-		return nil, false
+		return Video{}, false
 	}
 
 	rc, err := bot.bot.File(&msg.Video.File)
 	if err != nil {
 		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-		return nil, false
+		return Video{}, false
 	}
 	defer rc.Close()
 
 	data, err := io.ReadAll(rc)
 	if err != nil {
 		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
-		return nil, false
+		return Video{}, false
 	}
 
-	return &Video{
+	return Video{
 		Data:     data,
 		Caption:  msg.Video.Caption,
 		Duration: msg.Video.Duration,
@@ -545,30 +545,26 @@ func (bot *Bot) loadPage(msg *tele.Message) (string, bool) {
 }
 
 func (bot *Bot) getAiReply(msg *tele.Message, userMsg string, isReply bool) (AIReply, bool) {
-	req := AIRequest{
-		ChatID:    msg.Chat.ID,
-		Text:      userMsg,
-		ForceKeep: isReply,
-	}
+	req := NewAIRequest(msg.Chat.ID, userMsg, isReply)
 
 	if img, ok := bot.loadPhoto(msg); ok {
-		req.Image = img
+		req.Images = append(req.Images, img)
 	}
 
 	if audio, ok := bot.loadVoice(msg); ok {
-		req.Audio = audio
+		req.Audios = append(req.Audios, audio)
 	}
 
 	if page, ok := bot.loadPage(msg); ok {
-		req.Document = page
+		req.Docs = append(req.Docs, page)
 	}
 
 	if video, ok := bot.loadVideo(msg); ok {
-		req.Video = video
+		req.Videos = append(req.Videos, video)
 	}
 
 	if videoNote, ok := bot.loadVideoNote(msg); ok {
-		req.Video = videoNote
+		req.Videos = append(req.Videos, videoNote)
 	}
 
 	return bot.ai.GetReply(req)

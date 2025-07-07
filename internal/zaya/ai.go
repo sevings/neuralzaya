@@ -44,23 +44,28 @@ func newAiChat(prompt string, nCtx, maxSize, maxHistory int, log *zap.SugaredLog
 		log:      log,
 	}
 
-	chat.addMessage(llms.ChatMessageTypeSystem, prompt, "", nil, nil, nil, 4000)
+	chat.addMessage(llms.ChatMessageTypeSystem, []string{prompt}, nil, nil, nil, nil, 4000)
 
 	return chat
 }
 
-func getMessageLen(text string, maxTextTok int, doc string, img *Image, audio *Audio, video *Video) int {
-	res := min(len(text), maxTextTok)
-	res += len(doc)
-	if img != nil {
+func getMessageLen(texts []string, maxTextTok int, docs []string, imgs []Image, audios []Audio, videos []Video) int {
+	res := 0
+	for _, text := range texts {
+		res += min(len(text), maxTextTok)
+	}
+	for _, doc := range docs {
+		res += len(doc)
+	}
+	for _, img := range imgs {
 		res += calculateImageTokens(img.Width, img.Height)
 		res += len(img.Caption)
 	}
-	if audio != nil {
+	for _, audio := range audios {
 		res += audio.Duration * 32
 		res += len(audio.Caption)
 	}
-	if video != nil {
+	for _, video := range videos {
 		res += calculateVideoTokens(video.Width, video.Height, video.Duration)
 		res += len(video.Caption)
 	}
@@ -87,14 +92,15 @@ func calculateVideoTokens(width, height, duration int) int {
 	return duration * 290
 }
 
-func (chat *aiChat) addMessage(role llms.ChatMessageType, text, doc string, img *Image, audio *Audio, video *Video, maxTok int) {
+func (chat *aiChat) addMessage(role llms.ChatMessageType, texts []string, docs []string, imgs []Image, audios []Audio, videos []Video, maxTok int) {
 	msg := llms.MessageContent{
 		Role:  role,
 		Parts: make([]llms.ContentPart, 0),
 	}
 
 	size := 0
-	if img != nil {
+
+	for _, img := range imgs {
 		imagePart := llms.BinaryPart("image/jpeg", img.Data)
 		msg.Parts = append(msg.Parts, imagePart)
 		size += len(imagePart.Data)
@@ -106,7 +112,7 @@ func (chat *aiChat) addMessage(role llms.ChatMessageType, text, doc string, img 
 		}
 	}
 
-	if audio != nil {
+	for _, audio := range audios {
 		audioPart := llms.BinaryPart("audio/mpeg", audio.Data)
 		msg.Parts = append(msg.Parts, audioPart)
 		size += len(audioPart.Data)
@@ -118,7 +124,7 @@ func (chat *aiChat) addMessage(role llms.ChatMessageType, text, doc string, img 
 		}
 	}
 
-	if video != nil {
+	for _, video := range videos {
 		videoPart := llms.BinaryPart("video/mp4", video.Data)
 		msg.Parts = append(msg.Parts, videoPart)
 		size += len(videoPart.Data)
@@ -130,13 +136,13 @@ func (chat *aiChat) addMessage(role llms.ChatMessageType, text, doc string, img 
 		}
 	}
 
-	if doc != "" {
+	for _, doc := range docs {
 		docPart := llms.TextPart(doc)
 		msg.Parts = append(msg.Parts, docPart)
 		size += len(docPart.Text)
 	}
 
-	if text != "" {
+	for _, text := range texts {
 		textPart := llms.TextPart(text)
 		msg.Parts = append(msg.Parts, textPart)
 		size += len(textPart.Text)
@@ -145,7 +151,7 @@ func (chat *aiChat) addMessage(role llms.ChatMessageType, text, doc string, img 
 	chat.messages = append(chat.messages, msg)
 	chat.lastTime = time.Now()
 
-	msgLen := getMessageLen(text, maxTok, doc, img, audio, video)
+	msgLen := getMessageLen(texts, maxTok, docs, imgs, audios, videos)
 	chat.msgLens = append(chat.msgLens, msgLen)
 	chat.curCtx += msgLen
 
@@ -160,28 +166,28 @@ func (chat *aiChat) addMessage(role llms.ChatMessageType, text, doc string, img 
 
 const maxUserTokens = 4000
 
-func (chat *aiChat) addUserMessage(text string, doc string, img *Image, audio *Audio, video *Video) {
-	chat.addMessage(llms.ChatMessageTypeHuman, text, doc, img, audio, video, maxUserTokens)
+func (chat *aiChat) addUserMessage(texts []string, docs []string, imgs []Image, audios []Audio, videos []Video) {
+	chat.addMessage(llms.ChatMessageTypeHuman, texts, docs, imgs, audios, videos, maxUserTokens)
 }
 
 func (chat *aiChat) addUserTextMessage(text string) {
-	chat.addMessage(llms.ChatMessageTypeHuman, text, "", nil, nil, nil, maxUserTokens)
+	chat.addMessage(llms.ChatMessageTypeHuman, []string{text}, nil, nil, nil, nil, maxUserTokens)
 }
 
-func (chat *aiChat) addUserImageMessage(img *Image) {
-	chat.addMessage(llms.ChatMessageTypeHuman, "", "", img, nil, nil, maxUserTokens)
+func (chat *aiChat) addUserImageMessage(img Image) {
+	chat.addMessage(llms.ChatMessageTypeHuman, nil, nil, []Image{img}, nil, nil, maxUserTokens)
 }
 
-func (chat *aiChat) addUserAudioMessage(audio *Audio) {
-	chat.addMessage(llms.ChatMessageTypeHuman, "", "", nil, audio, nil, maxUserTokens)
+func (chat *aiChat) addUserAudioMessage(audio Audio) {
+	chat.addMessage(llms.ChatMessageTypeHuman, nil, nil, nil, []Audio{audio}, nil, maxUserTokens)
 }
 
-func (chat *aiChat) addUserVideoMessage(video *Video) {
-	chat.addMessage(llms.ChatMessageTypeHuman, "", "", nil, nil, video, maxUserTokens)
+func (chat *aiChat) addUserVideoMessage(video Video) {
+	chat.addMessage(llms.ChatMessageTypeHuman, nil, nil, nil, nil, []Video{video}, maxUserTokens)
 }
 
 func (chat *aiChat) addBotMessage(text string, maxTok int) {
-	chat.addMessage(llms.ChatMessageTypeAI, text, "", nil, nil, nil, maxTok)
+	chat.addMessage(llms.ChatMessageTypeAI, []string{text}, nil, nil, nil, nil, maxTok)
 }
 
 func (chat *aiChat) removeLastMessage() {
@@ -488,19 +494,29 @@ type Video struct {
 
 type AIRequest struct {
 	ChatID    int64
-	Text      string
-	Document  string
-	Image     *Image
-	Audio     *Audio
-	Video     *Video
+	Messages  []string
+	Docs      []string
+	Images    []Image
+	Audios    []Audio
+	Videos    []Video
 	ForceKeep bool
 }
 
+func NewAIRequest(chatID int64, text string, forceKeep bool) AIRequest {
+	return AIRequest{
+		ChatID:    chatID,
+		Messages:  []string{text},
+		Docs:      []string{},
+		Images:    []Image{},
+		Audios:    []Audio{},
+		Videos:    []Video{},
+		ForceKeep: forceKeep,
+	}
+}
+
 func (req AIRequest) isEmpty() bool {
-	return req.Text == "" && req.Document == "" &&
-		(req.Image == nil || len(req.Image.Data) == 0) &&
-		(req.Audio == nil || len(req.Audio.Data) == 0) &&
-		(req.Video == nil || len(req.Video.Data) == 0)
+	return len(req.Messages) == 0 && len(req.Docs) == 0 &&
+		len(req.Images) == 0 && len(req.Audios) == 0 && len(req.Videos) == 0
 }
 
 type AIReply struct {
@@ -514,13 +530,13 @@ func (ai *AI) GetReply(req AIRequest) (AIReply, bool) {
 	beginTime := time.Now().UnixNano()
 
 	if !ai.accImgs {
-		req.Image = nil
+		req.Images = []Image{}
 	}
 	if !ai.accAud {
-		req.Audio = nil
+		req.Audios = []Audio{}
 	}
 	if !ai.accVid {
-		req.Video = nil
+		req.Videos = []Video{}
 	}
 	if req.isEmpty() {
 		return AIReply{}, false
@@ -539,7 +555,7 @@ func (ai *AI) GetReply(req AIRequest) (AIReply, bool) {
 		chat.restart()
 	}
 
-	chat.addUserMessage(req.Text, req.Document, req.Image, req.Audio, req.Video)
+	chat.addUserMessage(req.Messages, req.Docs, req.Images, req.Audios, req.Videos)
 
 	resp, ok := ai.generate(req.ChatID, chat, 1)
 	if !ok {
@@ -617,7 +633,7 @@ func (ai *AI) AddAllMessages(messages []DialogMessage, maxHst map[int64]int) {
 			chatID = msg.ChatID
 			chat = ai.createChat(chatID, msg.Text, maxHst[chatID])
 		} else if len(chat.messages)%2 == 1 {
-			chat.addUserMessage(msg.Text, "", nil, nil, nil)
+			chat.addUserTextMessage(msg.Text)
 		} else {
 			chat.addBotMessage(msg.Text, ai.maxTok)
 		}
