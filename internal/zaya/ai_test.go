@@ -1265,13 +1265,12 @@ func TestCleanDataWithVideo(t *testing.T) {
 
 func TestNewAIRequest(t *testing.T) {
 	chatID := int64(12345)
-	text := "Hello, world!"
 	forceKeep := true
 
-	req := NewAIRequest(chatID, text, forceKeep)
+	req := NewAIRequest(chatID, forceKeep)
 
 	require.Equal(t, chatID, req.ChatID)
-	require.Equal(t, []string{text}, req.Messages)
+	require.Equal(t, []string{}, req.Messages)
 	require.Equal(t, []string{}, req.Docs)
 	require.Equal(t, []Image{}, req.Images)
 	require.Equal(t, []Audio{}, req.Audios)
@@ -1351,10 +1350,10 @@ func TestAIRequestIsEmpty(t *testing.T) {
 }
 
 func TestAIRequestArrays(t *testing.T) {
-	req := NewAIRequest(123, "initial text", false)
+	req := NewAIRequest(123, false)
 
 	// Test appending to arrays
-	req.Messages = append(req.Messages, "second text")
+	req.Messages = append(req.Messages, "initial text", "second text")
 	req.Docs = append(req.Docs, "document1", "document2")
 	req.Images = append(req.Images, Image{Data: []byte("img1")})
 	req.Audios = append(req.Audios, Audio{Data: []byte("audio1")})
@@ -1499,10 +1498,10 @@ func TestAddUserMessageArrays(t *testing.T) {
 }
 
 func TestAIRequestWithMultipleContent(t *testing.T) {
-	req := NewAIRequest(123, "initial text", false)
+	req := NewAIRequest(123, false)
 
 	// Add multiple content of each type
-	req.Messages = append(req.Messages, "second text", "third text")
+	req.Messages = append(req.Messages, "initial text", "second text", "third text")
 	req.Docs = append(req.Docs, "doc1", "doc2")
 	req.Images = append(req.Images,
 		Image{Data: []byte("img1"), Width: 300, Height: 300, Caption: "Image 1"},

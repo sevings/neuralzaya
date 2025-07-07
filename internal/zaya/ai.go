@@ -502,10 +502,10 @@ type AIRequest struct {
 	ForceKeep bool
 }
 
-func NewAIRequest(chatID int64, text string, forceKeep bool) AIRequest {
+func NewAIRequest(chatID int64, forceKeep bool) AIRequest {
 	return AIRequest{
 		ChatID:    chatID,
-		Messages:  []string{text},
+		Messages:  []string{},
 		Docs:      []string{},
 		Images:    []Image{},
 		Audios:    []Audio{},

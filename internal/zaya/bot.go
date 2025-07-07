@@ -546,8 +546,9 @@ func (bot *Bot) loadPages(msg *tele.Message) ([]string, bool) {
 	return pages, len(pages) > 0
 }
 
-func (bot *Bot) getAiReply(msg *tele.Message, userMsg string, isReply bool) (AIReply, bool) {
-	req := NewAIRequest(msg.Chat.ID, userMsg, isReply)
+func (bot *Bot) getAiReply(msg *tele.Message, userMsgs []string, isReply bool) (AIReply, bool) {
+	req := NewAIRequest(msg.Chat.ID, isReply)
+	req.Messages = userMsgs
 
 	if img, ok := bot.loadPhoto(msg); ok {
 		req.Images = append(req.Images, img)
@@ -572,7 +573,7 @@ func (bot *Bot) getAiReply(msg *tele.Message, userMsg string, isReply bool) (AIR
 	return bot.ai.GetReply(req)
 }
 
-func (bot *Bot) sendAiReply(msg *tele.Message, userMsg string, isReply bool) error {
+func (bot *Bot) sendAiReply(msg *tele.Message, userMsgs []string, isReply bool) error {
 	err := bot.bot.Notify(msg.Chat, tele.Typing)
 	if err != nil {
 		bot.log.Warnw(err.Error(), "chat_id", msg.Chat.ID)
@@ -585,7 +586,7 @@ func (bot *Bot) sendAiReply(msg *tele.Message, userMsg string, isReply bool) err
 	defer ticker.Stop()
 
 	go func() {
-		reply, ok := bot.getAiReply(msg, userMsg, isReply)
+		reply, ok := bot.getAiReply(msg, userMsgs, isReply)
 		if ok {
 			ch <- reply
 		} else {
@@ -866,7 +867,7 @@ func (bot *Bot) welcome(c tele.Context) error {
 	}
 
 	bot.startChat(c)
-	return bot.sendAiReply(c.Message(), bot.wlc, true)
+	return bot.sendAiReply(c.Message(), []string{bot.wlc}, true)
 }
 
 func (bot *Bot) readMessage(c tele.Context) error {
@@ -881,6 +882,10 @@ func (bot *Bot) readMessage(c tele.Context) error {
 	text := c.Text()
 	text = strings.ReplaceAll(text, "@"+bot.bot.Me.Username, "")
 	text = strings.TrimSpace(text)
+	msgTexts := []string{}
+	if text != "" {
+		msgTexts = append(msgTexts, text)
+	}
 
 	if msg.ReplyTo != nil &&
 		mentioned &&
@@ -889,10 +894,8 @@ func (bot *Bot) readMessage(c tele.Context) error {
 			msg.ReplyTo.Voice != nil ||
 			msg.ReplyTo.Video != nil ||
 			msg.ReplyTo.VideoNote != nil) {
-		if text == "" {
-			text = msg.ReplyTo.Text
-		} else if msg.ReplyTo.Text != "" {
-			text = "> " + strings.ReplaceAll(msg.ReplyTo.Text, "\n", "\n> ") + "\n\n" + text
+		if msg.ReplyTo.Text != "" {
+			msgTexts = append(msgTexts, msg.ReplyTo.Text)
 		}
 		msg = msg.ReplyTo
 	}
@@ -901,7 +904,7 @@ func (bot *Bot) readMessage(c tele.Context) error {
 		bot.startChat(c)
 	}
 
-	err := bot.sendAiReply(msg, text, forceKeepHistory)
+	err := bot.sendAiReply(msg, msgTexts, forceKeepHistory)
 
 	bot.logMessage(c, beginTime, err)
 
@@ -917,7 +920,7 @@ func (bot *Bot) continueAiReply(c tele.Context) error {
 	}
 
 	if bot.ai.IsChatStarted(c.Chat().ID) {
-		err = bot.sendAiReply(c.Message(), "continue", true)
+		err = bot.sendAiReply(c.Message(), []string{"continue"}, true)
 	}
 
 	bot.logMessage(c, beginTime, err)
