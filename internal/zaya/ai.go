@@ -593,6 +593,7 @@ func (ai *AI) GetReply(req AIRequest) (AIReply, bool) {
 		"in_size", chat.msgSizes[len(chat.msgSizes)-2],
 		"len", reply.ReplyLen,
 		"at_end", reply.AtEnd,
+		"reason", choice.StopReason,
 		"dur", fmt.Sprintf("%.2f", duration))
 
 	return reply, true
