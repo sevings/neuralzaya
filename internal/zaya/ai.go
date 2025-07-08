@@ -420,7 +420,7 @@ func (ai *AI) generate(chatID int64, chat *aiChat, nTry int) (*llms.ContentRespo
 		return resp, true
 	}
 
-	if strings.Contains(err.Error(), "Service Unavailable") {
+	if strings.Contains(err.Error(), "Service Unavailable") || strings.Contains(err.Error(), "Error 503") {
 		sec := nTry * 3
 		ai.log.Infow("sleeping", "sec", sec)
 		time.Sleep(time.Duration(sec) * time.Second)
