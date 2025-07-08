@@ -14,7 +14,8 @@ import (
 
 func setupAiChat(t *testing.T) *aiChat {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("Hello", 10000, 100000, 10, logger)
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("Hello", 10000, 100000, 10, logger, tokenCounter)
 
 	require.NotNil(t, chat)
 	require.Equal(t, 1, chat.getMessageCount())
@@ -124,63 +125,41 @@ func TestRestart(t *testing.T) {
 }
 
 func TestCalculateImageTokens(t *testing.T) {
+	tokenCounter := NewGoogleAITokenCounter()
+
 	// Test small image (384x384 or less)
-	tokens := calculateImageTokens(300, 300)
+	tokens := tokenCounter.CountImage(Image{Width: 300, Height: 300})
 	require.Equal(t, 258, tokens)
 
-	tokens = calculateImageTokens(384, 384)
+	tokens = tokenCounter.CountImage(Image{Width: 384, Height: 384})
 	require.Equal(t, 258, tokens)
 
 	// Test single tile image (768x768)
-	tokens = calculateImageTokens(768, 768)
+	tokens = tokenCounter.CountImage(Image{Width: 768, Height: 768})
 	require.Equal(t, 258, tokens)
 
 	// Test multi-tile images
-	tokens = calculateImageTokens(1000, 1000)
+	tokens = tokenCounter.CountImage(Image{Width: 1000, Height: 1000})
 	require.Equal(t, 4*258, tokens) // 2x2 tiles
 
-	tokens = calculateImageTokens(1536, 1536)
+	tokens = tokenCounter.CountImage(Image{Width: 1536, Height: 1536})
 	require.Equal(t, 4*258, tokens) // 2x2 tiles
 
-	tokens = calculateImageTokens(2000, 1000)
+	tokens = tokenCounter.CountImage(Image{Width: 2000, Height: 1000})
 	require.Equal(t, 6*258, tokens) // 3x2 tiles
 
 	// Test edge cases
-	tokens = calculateImageTokens(769, 769)
+	tokens = tokenCounter.CountImage(Image{Width: 769, Height: 769})
 	require.Equal(t, 4*258, tokens) // 2x2 tiles
 
-	tokens = calculateImageTokens(1, 1)
+	tokens = tokenCounter.CountImage(Image{Width: 1, Height: 1})
 	require.Equal(t, 258, tokens) // Small image
-}
-
-func TestGetMessageLen(t *testing.T) {
-	// Test text only
-	length := getMessageLen([]string{"Hello world"}, 1000, nil, nil, nil, nil)
-	require.Equal(t, 11, length)
-
-	// Test text with limit
-	length = getMessageLen([]string{"Hello world"}, 5, nil, nil, nil, nil)
-	require.Equal(t, 5, length)
-
-	// Test with small image
-	img := Image{Width: 300, Height: 300}
-	length = getMessageLen([]string{"Hello"}, 1000, nil, []Image{img}, nil, nil)
-	require.Equal(t, 5+258, length)
-
-	// Test with large image
-	img = Image{Width: 1000, Height: 1000}
-	length = getMessageLen([]string{"Hello"}, 1000, nil, []Image{img}, nil, nil)
-	require.Equal(t, 5+4*258, length)
-
-	// Test empty text with image
-	img = Image{Width: 384, Height: 384}
-	length = getMessageLen(nil, 1000, nil, []Image{img}, nil, nil)
-	require.Equal(t, 258, length)
 }
 
 func TestAddUserMessageWithImage(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("Hello", 10000, 100000, 10, logger)
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("Hello", 10000, 100000, 10, logger, tokenCounter)
 
 	// Add message with image
 	img := Image{
@@ -218,7 +197,8 @@ func TestAddUserMessageWithImage(t *testing.T) {
 
 func TestAddUserMessageImageOnly(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("Hello", 10000, 100000, 10, logger)
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("Hello", 10000, 100000, 10, logger, tokenCounter)
 
 	img := Image{
 		Data:   []byte("image data"),
@@ -273,7 +253,8 @@ func TestAddUserMessageTextOnly(t *testing.T) {
 
 func TestCleanDataRemovesImages(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("System", 10000, 30, 10, logger) // Very small maxSize to trigger cleanup
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("System", 10000, 30, 10, logger, tokenCounter) // Very small maxSize to trigger cleanup
 
 	// Add messages with images to exceed size limit
 	for range 2 {
@@ -309,7 +290,8 @@ func TestCleanDataRemovesImages(t *testing.T) {
 
 func TestCleanDataWithUploadedFileText(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("System", 10000, 30, 10, logger)
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("System", 10000, 30, 10, logger, tokenCounter)
 
 	// Add message with only image (no text)
 	img := Image{
@@ -332,7 +314,8 @@ func TestCleanDataWithUploadedFileText(t *testing.T) {
 
 func TestHistoryLimitWithImages(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("System", 10000, 100000, 6, logger) // maxHst = 6
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("System", 10000, 100000, 6, logger, tokenCounter) // maxHst = 6
 
 	// Add messages with images
 	for i := range 8 {
@@ -354,7 +337,8 @@ func TestHistoryLimitWithImages(t *testing.T) {
 
 func TestContextLimitWithImages(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("System", 300, 100000, 20, logger) // maxCtx = 300
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("System", 300, 100000, 20, logger, tokenCounter) // maxCtx = 300
 
 	// Add messages with large images to exceed context limit
 	for i := range 5 {
@@ -376,40 +360,43 @@ func TestContextLimitWithImages(t *testing.T) {
 }
 
 func TestCalculateImageTokensEdgeCases(t *testing.T) {
+	tokenCounter := NewGoogleAITokenCounter()
+
 	// Test zero dimensions
-	tokens := calculateImageTokens(0, 0)
+	tokens := tokenCounter.CountImage(Image{Width: 0, Height: 0})
 	require.Equal(t, 258, tokens)
 
 	// Test one dimension zero
-	tokens = calculateImageTokens(100, 0)
+	tokens = tokenCounter.CountImage(Image{Width: 100, Height: 0})
 	require.Equal(t, 258, tokens)
 
-	tokens = calculateImageTokens(0, 100)
+	tokens = tokenCounter.CountImage(Image{Width: 0, Height: 100})
 	require.Equal(t, 258, tokens)
 
 	// Test exactly at boundary
-	tokens = calculateImageTokens(385, 385)
+	tokens = tokenCounter.CountImage(Image{Width: 385, Height: 385})
 	require.Equal(t, 258, tokens) // Should be 1x1 tile since 385 + 767 = 1152, 1152/768 = 1
 
 	// Test very large image
-	tokens = calculateImageTokens(3840, 2160)
+	tokens = tokenCounter.CountImage(Image{Width: 3840, Height: 2160})
 	require.Equal(t, 15*258, tokens) // 5x3 tiles (ceil(3840/768) * ceil(2160/768) = 5*3)
 
 	// Test case that actually produces 4 tiles
-	tokens = calculateImageTokens(1000, 1000)
+	tokens = tokenCounter.CountImage(Image{Width: 1000, Height: 1000})
 	require.Equal(t, 4*258, tokens) // Should be 2x2 tiles
 
 	// Test rectangular images
-	tokens = calculateImageTokens(1536, 384)
+	tokens = tokenCounter.CountImage(Image{Width: 1536, Height: 384})
 	require.Equal(t, 2*258, tokens) // 2x1 tiles
 
-	tokens = calculateImageTokens(384, 1536)
+	tokens = tokenCounter.CountImage(Image{Width: 384, Height: 1536})
 	require.Equal(t, 2*258, tokens) // 1x2 tiles
 }
 
 func TestAddMessageWithLargeImage(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("Hello", 10000, 100000, 10, logger)
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("Hello", 10000, 100000, 10, logger, tokenCounter)
 
 	// Create a large image that should use multiple tiles
 	img := Image{
@@ -426,8 +413,8 @@ func TestAddMessageWithLargeImage(t *testing.T) {
 	require.Equal(t, 2, chat.getMessageCount())
 
 	// Calculate expected tokens: text + image tokens
-	expectedImageTokens := calculateImageTokens(1600, 1200) // Should be 6*258 (3x2 tiles: ceil(1600/768)=3, ceil(1200/768)=2)
-	expectedTotalTokens := 16 + expectedImageTokens         // "Large image test" + image
+	expectedImageTokens := chat.tokCntr.CountImage(Image{Width: 1600, Height: 1200}) // Should be 6*258 (3x2 tiles: ceil(1600/768)=3, ceil(1200/768)=2)
+	expectedTotalTokens := 16 + expectedImageTokens                                  // "Large image test" + image
 
 	require.Equal(t, initialCtx+expectedTotalTokens, chat.curCtx)
 	require.Equal(t, initialSize+16+1000, chat.curSize) // text + image data
@@ -435,7 +422,8 @@ func TestAddMessageWithLargeImage(t *testing.T) {
 
 func TestRemoveLastMessageWithImage(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("Hello", 10000, 100000, 10, logger)
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("Hello", 10000, 100000, 10, logger, tokenCounter)
 
 	img := Image{
 		Data:   []byte("test data"),
@@ -460,7 +448,8 @@ func TestRemoveLastMessageWithImage(t *testing.T) {
 
 func TestCleanDataPreservesTextOnlyMessages(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("System", 10000, 50, 10, logger)
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("System", 10000, 50, 10, logger, tokenCounter)
 
 	// Add mix of text-only and image messages
 	chat.addUserTextMessage("Text only 1")
@@ -492,7 +481,8 @@ func TestCleanDataPreservesTextOnlyMessages(t *testing.T) {
 
 func TestAIGetAllMessagesWithImages(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("System prompt", 10000, 100000, 10, logger)
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("System prompt", 10000, 100000, 10, logger, tokenCounter)
 
 	// Add messages with and without images
 	chat.addUserTextMessage("Text only")
@@ -555,7 +545,8 @@ func TestImageTokenCalculationIntegration(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			chat := newAiChat("Test", 10000, 100000, 10, logger)
+			tokenCounter := NewGoogleAITokenCounter()
+			chat := newAiChat("Test", 10000, 100000, 10, logger, tokenCounter)
 
 			img := Image{
 				Data:   []byte("test"),
@@ -574,7 +565,8 @@ func TestImageTokenCalculationIntegration(t *testing.T) {
 
 func TestContextManagementWithMixedContent(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("System", 1500, 100000, 20, logger) // Limited context
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("System", 1500, 100000, 20, logger, tokenCounter) // Limited context
 
 	// Add alternating text and image messages
 	for i := range 5 {
@@ -603,7 +595,8 @@ func TestContextManagementWithMixedContent(t *testing.T) {
 
 func TestSizeManagementWithImages(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("System", 100000, 200, 20, logger) // Limited size
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("System", 100000, 200, 20, logger, tokenCounter) // Limited size
 
 	// Add messages with large image data
 	for range 3 {
@@ -644,7 +637,8 @@ func TestSizeManagementWithImages(t *testing.T) {
 
 func TestMixedContentHandling(t *testing.T) {
 	logger := zaptest.NewLogger(t).Sugar()
-	chat := newAiChat("System", 2000, 500, 20, logger)
+	tokenCounter := NewGoogleAITokenCounter()
+	chat := newAiChat("System", 2000, 500, 20, logger, tokenCounter)
 
 	// Add various types of messages
 	chat.addUserTextMessage("Hello")
@@ -802,8 +796,9 @@ func TestCalculateAudioTokens(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			tokenCounter := NewGoogleAITokenCounter()
 			audio := Audio{Duration: tt.duration}
-			tokens := getMessageLen(nil, 4000, nil, nil, []Audio{audio}, nil)
+			tokens := tokenCounter.CountAudio(audio)
 			require.Equal(t, tt.expected, tokens)
 		})
 	}
@@ -906,34 +901,8 @@ func TestMixedContentWithAudio(t *testing.T) {
 	require.Equal(t, 3, len(chat.messages[1].Parts)) // image + audio + text
 
 	// Check token calculation includes both image and audio
-	expectedTokens := len("Mixed content") + calculateImageTokens(400, 300) + (20 * 32)
+	expectedTokens := len("Mixed content") + chat.tokCntr.CountImage(Image{Width: 400, Height: 300}) + (20 * 32)
 	require.Equal(t, expectedTokens, chat.msgLens[1])
-}
-
-func TestAudioTokenCalculationIntegration(t *testing.T) {
-	testCases := []struct {
-		name     string
-		text     string
-		duration int
-		expected int
-	}{
-		{"text and short audio", "Hello world", 5, len("Hello world") + 160},
-		{"text and long audio", "Test message", 60, len("Test message") + 1920},
-		{"empty text with audio", "", 30, 960},
-		{"text with zero audio", "Just text", 0, len("Just text")},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			var audio Audio
-			if tc.duration > 0 {
-				audio = Audio{Duration: tc.duration}
-			}
-
-			tokens := getMessageLen([]string{tc.text}, 4000, nil, nil, []Audio{audio}, nil)
-			require.Equal(t, tc.expected, tokens)
-		})
-	}
 }
 
 func TestSizeManagementWithAudio(t *testing.T) {
@@ -1014,7 +983,7 @@ func TestAudioWithImageCombination(t *testing.T) {
 	require.Equal(t, 3, len(chat.messages[1].Parts)) // image + audio + text
 
 	// Verify token calculation includes both media types
-	expectedTokens := len("Combined media") + calculateImageTokens(500, 400) + (15 * 32)
+	expectedTokens := len("Combined media") + chat.tokCntr.CountImage(Image{Width: 500, Height: 400}) + (15 * 32)
 	require.Equal(t, expectedTokens, chat.msgLens[1])
 
 	// Verify size calculation includes both media types
@@ -1023,44 +992,27 @@ func TestAudioWithImageCombination(t *testing.T) {
 }
 
 func TestCalculateVideoTokens(t *testing.T) {
+	tokenCounter := NewGoogleAITokenCounter()
+
 	// Test small video (both dimensions <= 384)
-	tokens := calculateVideoTokens(300, 200, 10)
+	tokens := tokenCounter.CountVideo(Video{Width: 300, Height: 200, Duration: 10})
 	require.Equal(t, 10*98, tokens) // 10 seconds * 98 tokens/second
 
 	// Test large video (one dimension > 384)
-	tokens = calculateVideoTokens(500, 300, 5)
+	tokens = tokenCounter.CountVideo(Video{Width: 500, Height: 300, Duration: 5})
 	require.Equal(t, 5*290, tokens) // 5 seconds * 290 tokens/second
 
 	// Test large video (both dimensions > 384)
-	tokens = calculateVideoTokens(1920, 1080, 3)
+	tokens = tokenCounter.CountVideo(Video{Width: 1920, Height: 1080, Duration: 3})
 	require.Equal(t, 3*290, tokens) // 3 seconds * 290 tokens/second
 
 	// Test edge case (exactly 384x384)
-	tokens = calculateVideoTokens(384, 384, 2)
+	tokens = tokenCounter.CountVideo(Video{Width: 384, Height: 384, Duration: 2})
 	require.Equal(t, 2*98, tokens) // 2 seconds * 98 tokens/second
 
 	// Test zero duration
-	tokens = calculateVideoTokens(1000, 1000, 0)
+	tokens = tokenCounter.CountVideo(Video{Width: 1000, Height: 1000, Duration: 0})
 	require.Equal(t, 0, tokens)
-}
-
-func TestGetMessageLenWithVideo(t *testing.T) {
-	// Test small video
-	video := Video{Width: 300, Height: 200, Duration: 5, Caption: "Small video"}
-	length := getMessageLen([]string{"Hello"}, 1000, nil, nil, nil, []Video{video})
-	expectedTokens := 5 + (5 * 98) + len("Small video") // text + video tokens + caption
-	require.Equal(t, expectedTokens, length)
-
-	// Test large video
-	video = Video{Width: 1920, Height: 1080, Duration: 3, Caption: "Large video"}
-	length = getMessageLen([]string{"Test"}, 1000, nil, nil, nil, []Video{video})
-	expectedTokens = 4 + (3 * 290) + len("Large video") // text + video tokens + caption
-	require.Equal(t, expectedTokens, length)
-
-	// Test video without caption
-	video = Video{Width: 500, Height: 400, Duration: 2}
-	length = getMessageLen(nil, 1000, nil, nil, nil, []Video{video})
-	require.Equal(t, 2*290, length) // Only video tokens
 }
 
 func TestAddUserVideoMessage(t *testing.T) {
@@ -1112,7 +1064,7 @@ func TestAddUserMessageWithVideo(t *testing.T) {
 	require.Equal(t, "Video caption", chat.getMessageText(1))
 
 	// Verify context length calculation
-	expectedTokens := len("Check this video") + calculateVideoTokens(800, 600, 15) + len("Video caption")
+	expectedTokens := len("Check this video") + chat.tokCntr.CountVideo(Video{Width: 800, Height: 600, Duration: 15}) + len("Video caption")
 	require.Equal(t, initialCtx+expectedTokens, chat.curCtx)
 
 	// Verify size calculation
@@ -1143,7 +1095,7 @@ func TestAddUserMessageVideoOnly(t *testing.T) {
 	require.Equal(t, "(uploaded file)", chat.getMessageText(1)) // No text content
 
 	// Verify context length (only video tokens)
-	expectedTokens := calculateVideoTokens(1920, 1080, 8)
+	expectedTokens := chat.tokCntr.CountVideo(Video{Width: 1920, Height: 1080, Duration: 8})
 	require.Equal(t, initialCtx+expectedTokens, chat.curCtx)
 
 	// Verify size (only video data)
@@ -1179,9 +1131,9 @@ func TestMixedContentWithVideo(t *testing.T) {
 
 	// Verify token calculation includes all media types
 	expectedTokens := len("Mixed media content") +
-		calculateImageTokens(400, 300) +
+		chat.tokCntr.CountImage(Image{Width: 400, Height: 300}) +
 		(5 * 32) +
-		calculateVideoTokens(1280, 720, 12)
+		chat.tokCntr.CountVideo(Video{Width: 1280, Height: 720, Duration: 12})
 	require.Equal(t, expectedTokens, chat.msgLens[1])
 
 	// Verify size calculation includes all media types
@@ -1207,7 +1159,8 @@ func TestVideoTokenCalculationInContext(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			testChat := newAiChat("Test", 10000, 100000, 10, logger)
+			tokenCounter := NewGoogleAITokenCounter()
+			testChat := newAiChat("Test", 10000, 100000, 10, logger, tokenCounter)
 
 			video := Video{
 				Data:     []byte("test"),
@@ -1374,98 +1327,6 @@ func TestAIRequestArrays(t *testing.T) {
 	require.Equal(t, []byte("video1"), req.Videos[0].Data)
 
 	require.False(t, req.isEmpty())
-}
-
-func TestGetMessageLenArrays(t *testing.T) {
-	tests := []struct {
-		name     string
-		texts    []string
-		docs     []string
-		imgs     []Image
-		audios   []Audio
-		videos   []Video
-		expected int
-	}{
-		{
-			name:     "Empty arrays",
-			texts:    []string{},
-			docs:     []string{},
-			imgs:     []Image{},
-			audios:   []Audio{},
-			videos:   []Video{},
-			expected: 0,
-		},
-		{
-			name:     "Multiple texts",
-			texts:    []string{"Hello", "World"},
-			docs:     []string{},
-			imgs:     []Image{},
-			audios:   []Audio{},
-			videos:   []Video{},
-			expected: 10, // 5 + 5
-		},
-		{
-			name:     "Multiple documents",
-			texts:    []string{},
-			docs:     []string{"Doc1", "Doc2"},
-			imgs:     []Image{},
-			audios:   []Audio{},
-			videos:   []Video{},
-			expected: 8, // 4 + 4
-		},
-		{
-			name:  "Multiple images",
-			texts: []string{},
-			docs:  []string{},
-			imgs: []Image{
-				{Width: 300, Height: 300, Caption: "img1"},
-				{Width: 800, Height: 600, Caption: "img2"},
-			},
-			audios:   []Audio{},
-			videos:   []Video{},
-			expected: 258 + 4 + 516 + 4, // small image + caption + large image (2 tiles) + caption
-		},
-		{
-			name:  "Multiple audios",
-			texts: []string{},
-			docs:  []string{},
-			imgs:  []Image{},
-			audios: []Audio{
-				{Duration: 10, Caption: "audio1"},
-				{Duration: 20, Caption: "audio2"},
-			},
-			videos:   []Video{},
-			expected: 10*32 + 6 + 20*32 + 6, // 10s*32 + caption + 20s*32 + caption
-		},
-		{
-			name:   "Multiple videos",
-			texts:  []string{},
-			docs:   []string{},
-			imgs:   []Image{},
-			audios: []Audio{},
-			videos: []Video{
-				{Width: 300, Height: 300, Duration: 5, Caption: "video1"},
-				{Width: 800, Height: 600, Duration: 10, Caption: "video2"},
-			},
-			expected: 5*98 + 6 + 10*290 + 6, // small video + caption + large video + caption
-		},
-		{
-			name:     "Mixed content",
-			texts:    []string{"Hello", "World"},
-			docs:     []string{"Document"},
-			imgs:     []Image{{Width: 300, Height: 300, Caption: "img"}},
-			audios:   []Audio{{Duration: 10, Caption: "audio"}},
-			videos:   []Video{{Width: 300, Height: 300, Duration: 5, Caption: "video"}},
-			expected: 5 + 5 + 8 + 258 + 3 + 10*32 + 5 + 5*98 + 5, // texts + doc + image + audio + video
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := getMessageLen(tt.texts, 4000, tt.docs, tt.imgs, tt.audios, tt.videos)
-			require.Equal(t, tt.expected, result)
-		})
-	}
 }
 
 func TestAddUserMessageArrays(t *testing.T) {

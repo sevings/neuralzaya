@@ -29,10 +29,11 @@ type aiChat struct {
 	maxHst   int
 	lastTime time.Time
 	hstLock  sync.Mutex
+	tokCntr  TokenCounter
 	log      *zap.SugaredLogger
 }
 
-func newAiChat(prompt string, nCtx, maxSize, maxHistory int, log *zap.SugaredLogger) *aiChat {
+func newAiChat(prompt string, nCtx, maxSize, maxHistory int, log *zap.SugaredLogger, tokenCounter TokenCounter) *aiChat {
 	chat := &aiChat{
 		messages: make([]llms.MessageContent, 0, 3),
 		msgLens:  make([]int, 0, 3),
@@ -41,6 +42,7 @@ func newAiChat(prompt string, nCtx, maxSize, maxHistory int, log *zap.SugaredLog
 		maxSize:  maxSize,
 		maxHst:   maxHistory,
 		lastTime: time.Now(),
+		tokCntr:  tokenCounter,
 		log:      log,
 	}
 
@@ -49,47 +51,30 @@ func newAiChat(prompt string, nCtx, maxSize, maxHistory int, log *zap.SugaredLog
 	return chat
 }
 
-func getMessageLen(texts []string, maxTextTok int, docs []string, imgs []Image, audios []Audio, videos []Video) int {
+func (chat *aiChat) countMessageTokens(texts []string, maxTextTokens int, docs []string, imgs []Image, audios []Audio, videos []Video) int {
 	res := 0
+
 	for _, text := range texts {
-		res += min(len(text), maxTextTok)
+		res += min(chat.tokCntr.CountText(text), maxTextTokens)
 	}
+
 	for _, doc := range docs {
-		res += len(doc)
+		res += chat.tokCntr.CountText(doc)
 	}
+
 	for _, img := range imgs {
-		res += calculateImageTokens(img.Width, img.Height)
-		res += len(img.Caption)
+		res += chat.tokCntr.CountImage(img)
 	}
+
 	for _, audio := range audios {
-		res += audio.Duration * 32
-		res += len(audio.Caption)
+		res += chat.tokCntr.CountAudio(audio)
 	}
+
 	for _, video := range videos {
-		res += calculateVideoTokens(video.Width, video.Height, video.Duration)
-		res += len(video.Caption)
+		res += chat.tokCntr.CountVideo(video)
 	}
+
 	return res
-}
-
-func calculateImageTokens(width, height int) int {
-	if width <= 384 && height <= 384 {
-		return 258
-	}
-
-	// Calculate number of 768x768 tiles needed
-	tilesX := (width + 767) / 768  // Ceiling division
-	tilesY := (height + 767) / 768 // Ceiling division
-	totalTiles := tilesX * tilesY
-
-	return totalTiles * 258
-}
-
-func calculateVideoTokens(width, height, duration int) int {
-	if width <= 384 && height <= 384 {
-		return duration * 98
-	}
-	return duration * 290
 }
 
 func (chat *aiChat) addMessage(role llms.ChatMessageType, texts []string, docs []string, imgs []Image, audios []Audio, videos []Video, maxTok int) {
@@ -151,7 +136,7 @@ func (chat *aiChat) addMessage(role llms.ChatMessageType, texts []string, docs [
 	chat.messages = append(chat.messages, msg)
 	chat.lastTime = time.Now()
 
-	msgLen := getMessageLen(texts, maxTok, docs, imgs, audios, videos)
+	msgLen := chat.countMessageTokens(texts, maxTok, docs, imgs, audios, videos)
 	chat.msgLens = append(chat.msgLens, msgLen)
 	chat.curCtx += msgLen
 
@@ -286,6 +271,7 @@ func (chat *aiChat) restart() {
 type AI struct {
 	llm     llms.Model
 	altLlm  llms.Model
+	tokCntr TokenCounter
 	isAlt   atomic.Bool
 	chats   imcache.Cache[int64, *aiChat]
 	opts    []llms.CallOption
@@ -388,6 +374,13 @@ func NewAI(cfg AiConfig) (*AI, bool) {
 	ai.opts = append(ai.opts, llms.WithMaxTokens(cfg.MaxTok))
 	ai.opts = append(ai.opts, llms.WithStopWords(cfg.Stop))
 
+	switch cfg.Provider {
+	case "googleai":
+		ai.tokCntr = NewGoogleAITokenCounter()
+	default:
+		ai.tokCntr = NewBasicTokenCounter()
+	}
+
 	return ai, true
 }
 
@@ -401,7 +394,7 @@ func (ai *AI) IsChatStarted(chatID int64) bool {
 }
 
 func (ai *AI) createChat(chatID int64, prompt string, maxHistory int) *aiChat {
-	chat := newAiChat(prompt, ai.maxCtx, ai.maxSize, maxHistory, ai.log)
+	chat := newAiChat(prompt, ai.maxCtx, ai.maxSize, maxHistory, ai.log, ai.tokCntr)
 	ai.chats.Set(chatID, chat, ai.chatExp)
 	return chat
 }
